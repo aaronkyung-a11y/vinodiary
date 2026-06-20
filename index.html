@@ -37,7 +37,7 @@ const { useState, useEffect, useRef } = React;
 // ============================================================
 
 const API_KEY_LS = "vinodiary:apiUrl";
-const APP_VERSION = "v0.16";
+const APP_VERSION = "v0.18";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 function kstNow() {
@@ -176,6 +176,7 @@ function App() {
   const [wcRunnerUp, setWcRunnerUp] = useState(null);  // 준우승
   const [wcLoading, setWcLoading] = useState(false);
   const fileRef = useRef(null);
+  const cameraRef = useRef(null);
 
   useEffect(() => {
     if (ready) refresh();
@@ -232,8 +233,26 @@ function App() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      setImageData(reader.result.split(",")[1]);
-      setImagePreview(reader.result);
+      const img = new Image();
+      img.onload = () => {
+        // 가로 최대 1600px로 축소, JPEG 0.8로 재인코딩(용량↓ → 전송·분석 안정)
+        const maxW = 1600;
+        let w = img.width, h = img.height;
+        if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+        setImageData(dataUrl.split(",")[1]);
+        setImagePreview(dataUrl);
+      };
+      img.onerror = () => {
+        // 디코딩 실패 시 원본 사용(폴백)
+        setImageData(reader.result.split(",")[1]);
+        setImagePreview(reader.result);
+      };
+      img.src = reader.result;
     };
     reader.readAsDataURL(file);
   }
@@ -296,9 +315,13 @@ function App() {
     try {
       const r = await api({ action: "analyzeMenu", text, imageData });
       if (r.error) throw new Error(r.error);
+      if (!r.items || r.items.length === 0) {
+        setError("사진에서 술을 읽지 못했어요. 더 선명하게 찍거나 리스트를 텍스트로 붙여넣어 보세요.");
+        return;
+      }
       setMenuResult(r);
     } catch (e) {
-      setError("메뉴판 분석에 실패했어요. 다시 시도해 주세요.");
+      setError("메뉴판 분석 실패: " + (e.message || "다시 시도해 주세요") + (imageData ? " (사진이 크면 일부만 보이게 잘라 다시 시도)" : ""));
       console.error(e);
     } finally {
       setMenuLoading(false);
@@ -693,23 +716,35 @@ function App() {
                 );
               })}
             </div>
-            <div onClick={() => fileRef.current?.click()}
-              style={{ border: `1px dashed ${C.line}`, borderRadius: 14,
-                padding: imagePreview ? 8 : 28, textAlign: "center", cursor: "pointer",
-                background: C.panel, marginBottom: 14 }}>
-              {imagePreview ? (
-                <img src={imagePreview} alt="" style={{ maxHeight: 260, borderRadius: 8 }} />
-              ) : (
-                <div style={{ color: C.sub }}>
-                  <div style={{ fontSize: 30, marginBottom: 6 }}>📷</div>
-                  <div style={{ fontSize: 14 }}>
-                    {analyzeMode === "menu" ? "메뉴판·매대 사진 올리기" : "라벨 사진 올리기"}
-                  </div>
-                </div>
-              )}
-              <input ref={fileRef} type="file" accept="image/*"
-                onChange={onPickImage} style={{ display: "none" }} />
-            </div>
+            {imagePreview ? (
+              <div style={{ position: "relative", marginBottom: 14, textAlign: "center" }}>
+                <img src={imagePreview} alt="" style={{ maxHeight: 260, borderRadius: 12,
+                  border: `1px solid ${C.line}` }} />
+                <button onClick={() => { setImageData(null); setImagePreview(null); }}
+                  style={{ position: "absolute", top: 8, right: 8, width: 28, height: 28,
+                    borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff",
+                    border: "none", fontSize: 16, cursor: "pointer" }}>×</button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+                <button onClick={() => cameraRef.current?.click()}
+                  style={{ flex: 1, padding: "22px 0", background: C.panel,
+                    border: `1px dashed ${C.line}`, borderRadius: 14, cursor: "pointer", color: C.sub }}>
+                  <div style={{ fontSize: 26, marginBottom: 4 }}>📷</div>
+                  <div style={{ fontSize: 13 }}>사진 찍기</div>
+                </button>
+                <button onClick={() => fileRef.current?.click()}
+                  style={{ flex: 1, padding: "22px 0", background: C.panel,
+                    border: `1px dashed ${C.line}`, borderRadius: 14, cursor: "pointer", color: C.sub }}>
+                  <div style={{ fontSize: 26, marginBottom: 4 }}>🖼️</div>
+                  <div style={{ fontSize: 13 }}>갤러리에서 고르기</div>
+                </button>
+              </div>
+            )}
+            <input ref={cameraRef} type="file" accept="image/*" capture="environment"
+              onChange={onPickImage} style={{ display: "none" }} />
+            <input ref={fileRef} type="file" accept="image/*"
+              onChange={onPickImage} style={{ display: "none" }} />
 
             <textarea value={text} onChange={(e) => setText(e.target.value)}
               placeholder={analyzeMode === "menu"
