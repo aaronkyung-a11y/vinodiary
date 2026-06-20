@@ -145,11 +145,31 @@ function App() {
   const [axesLoading, setAxesLoading] = useState(null);
   const [profile, setProfile] = useState(null);     // 취향 분석 결과
   const [profileLoading, setProfileLoading] = useState(false);
+  const [toast, setToast] = useState(null); // {msg, kind: "loading"|"done"|"error"}
   const fileRef = useRef(null);
 
   useEffect(() => {
     if (ready) refresh();
   }, [ready]);
+
+  // 토스트: 저장 진행/완료/실패를 화면 하단에 잠깐 표시
+  function showToast(msg, kind) {
+    setToast({ msg, kind: kind || "done" });
+    if (kind !== "loading") setTimeout(() => setToast(null), 1800);
+  }
+  // 저장 계열 API를 토스트와 함께 호출
+  async function savingApi(payload, doneMsg) {
+    showToast("저장 중…", "loading");
+    try {
+      const r = await api(payload);
+      if (r && r.error) throw new Error(r.error);
+      showToast(doneMsg || "저장됨", "done");
+      return r;
+    } catch (e) {
+      showToast("저장 실패 — 다시 시도해 주세요", "error");
+      throw e;
+    }
+  }
 
   async function refresh() {
     setSyncing(true);
@@ -223,7 +243,7 @@ function App() {
       status: status || "tasted",
       axes: result.axes || null,
     };
-    await api({ action: "save", entry });
+    await savingApi({ action: "save", entry }, status === "wishlist" ? "위시리스트에 담음" : "저장됨");
     setResult(null); setText(""); setImageData(null); setImagePreview(null);
     setTab("cellar");
     refresh();
@@ -245,15 +265,13 @@ function App() {
       status: status || "tasted",
       axes: d.axes || null,
     };
-    await api({ action: "save", entry });
-    setError(status === "wishlist" ? "위시리스트에 담았어요." : "셀러에 저장했어요.");
-    setTimeout(() => setError(null), 2200);
+    await savingApi({ action: "save", entry }, status === "wishlist" ? "위시리스트에 담음" : "셀러에 저장됨");
     refresh();
   }
 
   async function setScore(id, score) {
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, myScore: score } : e)));
-    await api({ action: "setScore", id, myScore: score });
+    await savingApi({ action: "setScore", id, myScore: score }, "점수 저장됨");
   }
 
   // 기존 기록의 특성 막대를 생성(detail 호출 → axes 추출 → 시트 저장)
@@ -293,7 +311,7 @@ function App() {
       const scores = { ...(e.scores || {}), [rater]: score };
       return { ...e, scores, status: "tasted" };
     }));
-    await api({ action: "setRating", id, rater, score });
+    await savingApi({ action: "setRating", id, rater, score }, "점수 저장됨");
     if (rater !== "me" && rater !== "나" && !raters.includes(rater)) {
       setRaters((prev) => [...prev, rater]);
     }
@@ -302,7 +320,7 @@ function App() {
   // 위시리스트 항목을 마셔봄 → 평가 + tasted 전환
   async function tasteItem(id, score) {
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, myScore: score, status: "tasted" } : e)));
-    await api({ action: "taste", id, myScore: score });
+    await savingApi({ action: "taste", id, myScore: score }, "점수 저장됨");
   }
 
   async function removeEntry(id) {
@@ -680,7 +698,7 @@ function App() {
                           const sc = { ...(x.scores || {}) }; delete sc[who];
                           return { ...x, scores: sc };
                         }));
-                        api({ action: "unrate", id: e.id, rater: raterKey });
+                        savingApi({ action: "unrate", id: e.id, rater: raterKey }, "평가 취소됨");
                       }}
                         style={{ width: "100%", marginTop: 8, padding: "9px", background: "transparent",
                           color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 12,
@@ -691,7 +709,7 @@ function App() {
                       <button onClick={() => {
                         setEntries((prev) => prev.map((x) => x.id === e.id
                           ? { ...x, myScore: null, scores: {}, status: "wishlist" } : x));
-                        api({ action: "unrate", id: e.id, rater: "all" });
+                        savingApi({ action: "unrate", id: e.id, rater: "all" }, "위시리스트로 되돌림");
                       }}
                         style={{ width: "100%", marginTop: 6, padding: "8px", background: "transparent",
                           color: C.goldDim, border: "none", fontSize: 11, cursor: "pointer" }}>
@@ -913,6 +931,25 @@ function App() {
           </section>
         )}
       </main>
+
+      {/* 저장 상태 토스트 */}
+      {toast && (
+        <div style={{ position: "fixed", left: "50%", bottom: 78, transform: "translateX(-50%)",
+          zIndex: 50, background: toast.kind === "error" ? "#5A2530" : C.panel2,
+          color: toast.kind === "error" ? "#F4B8C0" : (toast.kind === "done" ? C.gold : C.text),
+          border: `1px solid ${toast.kind === "error" ? "#7C2A3A" : C.line}`,
+          borderRadius: 20, padding: "9px 18px", fontSize: 13, display: "flex", alignItems: "center",
+          gap: 8, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", whiteSpace: "nowrap" }}>
+          {toast.kind === "loading" && (
+            <span style={{ width: 12, height: 12, border: `2px solid ${C.goldDim}`,
+              borderTopColor: C.gold, borderRadius: "50%", display: "inline-block",
+              animation: "vd-spin 0.7s linear infinite" }} />
+          )}
+          {toast.kind === "done" && <span>✓</span>}
+          {toast.msg}
+        </div>
+      )}
+      <style>{`@keyframes vd-spin { to { transform: rotate(360deg); } }`}</style>
 
       <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.panel,
         borderTop: `1px solid ${C.line}`, display: "flex", maxWidth: 560, margin: "0 auto" }}>
