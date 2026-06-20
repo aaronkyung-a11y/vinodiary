@@ -72,6 +72,36 @@ const C = {
   wine: "#7C2A3A", whisky: "#A6612A",
 };
 
+// 축 라벨 한글화
+const AXIS_LABELS = {
+  mineral: "미네랄", acidity: "산도", body: "바디", fruit: "과실", complexity: "복합미",
+  peat: "피트", sherry: "셰리/캐스크", abv: "도수감",
+};
+function AxisBars({ axes }) {
+  if (!axes || typeof axes !== "object") return null;
+  const keys = Object.keys(axes);
+  if (!keys.length) return null;
+  return (
+    <div style={{ marginTop: 4 }}>
+      {keys.map((k) => {
+        const v = Math.max(0, Math.min(5, Number(axes[k]) || 0));
+        return (
+          <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+            <span style={{ width: 58, fontSize: 11, color: "#9A9081", flexShrink: 0, textAlign: "right" }}>
+              {AXIS_LABELS[k] || k}
+            </span>
+            <div style={{ flex: 1, height: 6, background: "#24201B", borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ width: `${(v / 5) * 100}%`, height: "100%", background: "#C9A24B",
+                borderRadius: 3 }} />
+            </div>
+            <span style={{ width: 14, fontSize: 11, color: "#C9A24B", textAlign: "right" }}>{v}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ScoreRing({ value, size = 64 }) {
   const r = size / 2 - 5;
   const circ = 2 * Math.PI * r;
@@ -111,6 +141,9 @@ function App() {
   const [recFor, setRecFor] = useState("me"); // 추천 기준: me | common | 친구이름
   const [raters, setRaters] = useState([]);    // 등록된 친구 목록
   const [ratingFor, setRatingFor] = useState({}); // {entryId: "친구이름"} 평가자 선택
+  const [axesLoading, setAxesLoading] = useState(null);
+  const [profile, setProfile] = useState(null);     // 취향 분석 결과
+  const [profileLoading, setProfileLoading] = useState(false);
   const fileRef = useRef(null);
 
   useEffect(() => {
@@ -187,6 +220,7 @@ function App() {
       myScore: myScore ?? null,
       image: "",
       status: status || "tasted",
+      axes: result.axes || null,
     };
     await api({ action: "save", entry });
     setResult(null); setText(""); setImageData(null); setImagePreview(null);
@@ -208,6 +242,7 @@ function App() {
       myScore: myScore ?? null,
       image: "",
       status: status || "tasted",
+      axes: d.axes || null,
     };
     await api({ action: "save", entry });
     setError(status === "wishlist" ? "위시리스트에 담았어요." : "셀러에 저장했어요.");
@@ -218,6 +253,35 @@ function App() {
   async function setScore(id, score) {
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, myScore: score } : e)));
     await api({ action: "setScore", id, myScore: score });
+  }
+
+  // 기존 기록의 특성 막대를 생성(detail 호출 → axes 추출 → 시트 저장)
+  async function analyzeAxes(entry) {
+    setAxesLoading(entry.id);
+    try {
+      const d = await api({ action: "detail", name: entry.name, kind: entry.kind });
+      if (d && d.axes) {
+        setEntries((prev) => prev.map((x) => (x.id === entry.id ? { ...x, axes: d.axes } : x)));
+        await api({ action: "setAxes", id: entry.id, axes: d.axes });
+      }
+    } catch (e) {
+      setError("특성 분석에 실패했어요.");
+      setTimeout(() => setError(null), 2000);
+    } finally {
+      setAxesLoading(null);
+    }
+  }
+
+  async function loadProfile() {
+    setProfileLoading(true);
+    try {
+      const r = await api({ action: "tasteProfile", rater: recFor === "common" ? "me" : recFor });
+      setProfile(r);
+    } catch (e) {
+      setProfile(null);
+    } finally {
+      setProfileLoading(false);
+    }
   }
 
   // 평가자별 점수 설정. rater="me"면 내 점수, 그 외 이름이면 친구 점수.
@@ -246,7 +310,7 @@ function App() {
   }
 
   async function loadRecs() {
-    setRecLoading(true); setRecs(null);
+    setRecLoading(true); setRecs(null); setProfile(null);
     try {
       const r = await api({ action: "recommend", forWhom: recFor });
       setRecs(Array.isArray(r) ? r : []);
@@ -254,6 +318,27 @@ function App() {
       setRecs([]);
     } finally {
       setRecLoading(false);
+    }
+  }
+
+  const [recMoreLoading, setRecMoreLoading] = useState(false);
+  async function loadMoreRecs() {
+    if (!recs || !recs.length) return;
+    setRecMoreLoading(true);
+    try {
+      const exclude = recs.map((r) => r.name);
+      const r = await api({ action: "recommend", forWhom: recFor, exclude });
+      if (Array.isArray(r) && r.length) {
+        // 중복 이름 제거하며 이어붙이기
+        const have = new Set(recs.map((x) => x.name));
+        const fresh = r.filter((x) => !have.has(x.name));
+        setRecs((prev) => [...prev, ...fresh]);
+      }
+    } catch (e) {
+      setError("더 불러오지 못했어요.");
+      setTimeout(() => setError(null), 2000);
+    } finally {
+      setRecMoreLoading(false);
     }
   }
 
@@ -404,6 +489,12 @@ function App() {
                 <div style={{ marginTop: 6, fontSize: 11, color: C.sub }}>
                   신뢰도: {result.confidence} · 예측치는 추정값입니다
                 </div>
+                {result.axes && (
+                  <div style={{ marginTop: 12 }}>
+                    <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>특성</span>
+                    <AxisBars axes={result.axes} />
+                  </div>
+                )}
                 <div style={{ marginTop: 16, borderTop: `1px solid ${C.line}`, paddingTop: 14 }}>
                   <div style={{ fontSize: 12, color: C.sub, marginBottom: 8 }}>
                     이미 마셔봤다면 실제 점수를 입력하세요
@@ -515,6 +606,20 @@ function App() {
                         <div style={{ color: C.text, marginTop: 2 }}>{e.reason}</div>
                       </div>
                     )}
+                    {/* 특성 막대 */}
+                    {e.axes ? (
+                      <div style={{ marginBottom: 10 }}>
+                        <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>특성</span>
+                        <AxisBars axes={e.axes} />
+                      </div>
+                    ) : (
+                      <button onClick={() => analyzeAxes(e)} disabled={axesLoading === e.id}
+                        style={{ marginBottom: 10, padding: "6px 12px", fontSize: 12,
+                          background: "transparent", color: C.gold, border: `1px solid ${C.goldDim}`,
+                          borderRadius: 8, cursor: "pointer" }}>
+                        {axesLoading === e.id ? "분석 중…" : "특성 막대 분석하기"}
+                      </button>
+                    )}
                     {/* 평가자별 점수 */}
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
                       {e.predictedScore != null && (
@@ -564,6 +669,33 @@ function App() {
                               cursor: "pointer" }}>{s}</button>
                         ))}
                       </div>
+                      <button onClick={() => {
+                        const who = ratingFor[e.id] || "나";
+                        const raterKey = who === "나" ? "me" : who;
+                        // 화면 즉시 반영
+                        setEntries((prev) => prev.map((x) => {
+                          if (x.id !== e.id) return x;
+                          if (raterKey === "me") return { ...x, myScore: null };
+                          const sc = { ...(x.scores || {}) }; delete sc[who];
+                          return { ...x, scores: sc };
+                        }));
+                        api({ action: "unrate", id: e.id, rater: raterKey });
+                      }}
+                        style={{ width: "100%", marginTop: 8, padding: "9px", background: "transparent",
+                          color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 12,
+                          cursor: "pointer" }}>
+                        {(ratingFor[e.id] || "나")} 평가 취소(안 마셔봄)
+                      </button>
+                      {/* 전체를 위시리스트로 되돌리기 */}
+                      <button onClick={() => {
+                        setEntries((prev) => prev.map((x) => x.id === e.id
+                          ? { ...x, myScore: null, scores: {}, status: "wishlist" } : x));
+                        api({ action: "unrate", id: e.id, rater: "all" });
+                      }}
+                        style={{ width: "100%", marginTop: 6, padding: "8px", background: "transparent",
+                          color: C.goldDim, border: "none", fontSize: 11, cursor: "pointer" }}>
+                        ✧ 전체 위시리스트로 되돌리기
+                      </button>
                     </div>
                   </div>
                 )}
@@ -616,6 +748,47 @@ function App() {
                 recFor === "me" ? "내 취향과 비슷한 술 추천받기" :
                 `${recFor} 취향으로 추천받기`}
             </button>
+
+            {/* 취향 일관/비일관 분석 */}
+            <div style={{ marginBottom: 16 }}>
+              <button onClick={loadProfile} disabled={profileLoading}
+                style={{ width: "100%", padding: "10px", background: C.panel,
+                  color: C.gold, border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 13,
+                  cursor: "pointer", opacity: profileLoading ? 0.6 : 1 }}>
+                {profileLoading ? "분석 중…" :
+                  `${recFor === "common" || recFor === "me" ? "내" : recFor + "의"} 취향 패턴 보기`}
+              </button>
+              {profile && profile.enough === false && (
+                <div style={{ marginTop: 8, fontSize: 12, color: C.sub, textAlign: "center" }}>
+                  {profile.note}
+                </div>
+              )}
+              {profile && profile.enough && (
+                <div style={{ marginTop: 10, background: C.panel, border: `1px solid ${C.line}`,
+                  borderRadius: 12, padding: 14, fontSize: 13, lineHeight: 1.6 }}>
+                  {profile.summary && (
+                    <div style={{ color: C.text, marginBottom: 10, fontStyle: "italic" }}>{profile.summary}</div>
+                  )}
+                  {profile.consistent && profile.consistent.length > 0 && (
+                    <div style={{ marginBottom: 8 }}>
+                      <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>일관된 취향</span>
+                      {profile.consistent.map((c, i) => (
+                        <div key={i} style={{ color: C.text, marginTop: 3 }}>· {c}</div>
+                      ))}
+                    </div>
+                  )}
+                  {profile.inconsistent && profile.inconsistent.length > 0 && (
+                    <div>
+                      <span style={{ color: C.goldDim, fontSize: 11, letterSpacing: 1 }}>아직 들쭉날쭉한 부분</span>
+                      {profile.inconsistent.map((c, i) => (
+                        <div key={i} style={{ color: C.sub, marginTop: 3 }}>· {c}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {error && tab === "recommend" && (
               <div style={{ color: C.gold, fontSize: 13, marginBottom: 10, textAlign: "center" }}>
                 {error}
@@ -667,6 +840,12 @@ function App() {
                     {d.serving && (<div style={{ marginBottom: 8 }}>
                       <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>서빙 팁</span>
                       <div style={{ color: C.text, marginTop: 2 }}>{d.serving}</div></div>)}
+                    {d.axes && (
+                      <div style={{ marginBottom: 8 }}>
+                        <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>특성</span>
+                        <AxisBars axes={d.axes} />
+                      </div>
+                    )}
                     {d.est && <div style={{ color: C.goldDim, fontSize: 12 }}>{d.est}</div>}
 
                     {/* 액션: 먹어봤으면 평가 / 안 먹어봤으면 위시리스트 */}
@@ -699,6 +878,14 @@ function App() {
               </div>
               );
             })}
+            {recs && recs.length > 0 && (
+              <button onClick={loadMoreRecs} disabled={recMoreLoading}
+                style={{ width: "100%", padding: "12px", marginTop: 4, marginBottom: 20,
+                  background: "transparent", color: C.gold, border: `1px dashed ${C.goldDim}`,
+                  borderRadius: 10, fontSize: 13, cursor: "pointer", opacity: recMoreLoading ? 0.6 : 1 }}>
+                {recMoreLoading ? "더 고르는 중…" : "↓ 더 추천받기"}
+              </button>
+            )}
           </section>
         )}
       </main>
