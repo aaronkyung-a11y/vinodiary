@@ -9,6 +9,7 @@
   html,body{margin:0;padding:0;background:#13110E;color:#EAE3D6;}
   *{-webkit-tap-highlight-color:transparent;box-sizing:border-box;}
   #err{display:none;padding:20px;font-family:monospace;font-size:13px;color:#E8A;white-space:pre-wrap;line-height:1.5;}
+  select option{background:#1A1712;color:#EAE3D6;}
 </style>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -37,7 +38,7 @@ const { useState, useEffect, useRef } = React;
 // ============================================================
 
 const API_KEY_LS = "vinodiary:apiUrl";
-const APP_VERSION = "v0.18";
+const APP_VERSION = "v0.20";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 function kstNow() {
@@ -375,12 +376,13 @@ function App() {
       name: rec.name,
       kind: rec.kind,
       resembles: rec.why || "",
-      predictedScore: null,
+      predictedScore: rec.predictedScore ?? d.predictedScore ?? null,
       reason: d.profile || rec.why || "",
       myScore: myScore ?? null,
       image: "",
       status: status || "tasted",
       axes: d.axes || null,
+      subtype: d.subtype || rec.subtype || "",
     };
     await savingApi({ action: "save", entry }, status === "wishlist" ? "위시리스트에 담음" : "셀러에 저장됨");
     refresh();
@@ -396,12 +398,40 @@ function App() {
     setAxesLoading(entry.id);
     try {
       const d = await api({ action: "detail", name: entry.name, kind: entry.kind });
-      if (d && d.axes) {
-        setEntries((prev) => prev.map((x) => (x.id === entry.id ? { ...x, axes: d.axes } : x)));
-        await api({ action: "setAxes", id: entry.id, axes: d.axes });
+      const patch = {};
+      if (d && d.axes) patch.axes = d.axes;
+      // 예측 점수가 비어있으면 함께 채움
+      if (d && d.predictedScore != null && entry.predictedScore == null) {
+        patch.predictedScore = d.predictedScore;
+      }
+      if (Object.keys(patch).length) {
+        setEntries((prev) => prev.map((x) => (x.id === entry.id ? { ...x, ...patch } : x)));
+        if (patch.axes) await api({ action: "setAxes", id: entry.id, axes: patch.axes });
+        if (patch.predictedScore != null) await api({ action: "setPredicted", id: entry.id, predictedScore: patch.predictedScore });
       }
     } catch (e) {
       setError("특성 분석에 실패했어요.");
+      setTimeout(() => setError(null), 2000);
+    } finally {
+      setAxesLoading(null);
+    }
+  }
+
+  // 예측 점수만 도출(점수가 비어있는 기존 셀러 항목 보정)
+  async function derivePredicted(entry) {
+    setAxesLoading(entry.id);
+    try {
+      const d = await api({ action: "detail", name: entry.name, kind: entry.kind });
+      const patch = {};
+      if (d && d.predictedScore != null) patch.predictedScore = d.predictedScore;
+      if (d && d.axes && !entry.axes) patch.axes = d.axes;
+      if (Object.keys(patch).length) {
+        setEntries((prev) => prev.map((x) => (x.id === entry.id ? { ...x, ...patch } : x)));
+        if (patch.predictedScore != null) await savingApi({ action: "setPredicted", id: entry.id, predictedScore: patch.predictedScore }, "예측 점수 도출됨");
+        if (patch.axes) await api({ action: "setAxes", id: entry.id, axes: patch.axes });
+      }
+    } catch (e) {
+      setError("예측 점수 도출에 실패했어요.");
       setTimeout(() => setError(null), 2000);
     } finally {
       setAxesLoading(null);
@@ -950,16 +980,15 @@ function App() {
             {entries.length > 0 && (
               <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
                 <span style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1 }}>정렬</span>
-                {[["recent", "최신순"], ["score", "점수순"]].map(([k, label]) => {
-                  const sel = sortBy === k;
-                  return (
-                    <button key={k} onClick={() => setSortBy(k)}
-                      style={{ padding: "5px 12px", fontSize: 12, borderRadius: 14,
-                        background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
-                        border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer",
-                        fontWeight: sel ? 700 : 400 }}>{label}</button>
-                  );
-                })}
+                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}
+                  style={{ flex: 1, background: C.panel, color: C.text, border: `1px solid ${C.line}`,
+                    borderRadius: 8, padding: "8px 10px", fontSize: 13, cursor: "pointer" }}>
+                  <option value="recent">최신순</option>
+                  <option value="oldest">오래된순</option>
+                  <option value="scoreHigh">내 점수 높은순</option>
+                  <option value="scoreLow">내 점수 낮은순</option>
+                  <option value="predHigh">예측 점수 높은순</option>
+                </select>
               </div>
             )}
             {entries.length > 0 && (
@@ -997,13 +1026,18 @@ function App() {
                 return true;
               })
               .sort((a, b) => {
-                if (sortBy === "score") {
-                  const sa = a.myScore != null ? a.myScore : (a.predictedScore != null ? a.predictedScore : -1);
-                  const sb = b.myScore != null ? b.myScore : (b.predictedScore != null ? b.predictedScore : -1);
-                  if (sb !== sa) return sb - sa; // 높은 점수 먼저
-                  return Number(b.id) - Number(a.id);
+                const myA = a.myScore != null ? a.myScore : -1;
+                const myB = b.myScore != null ? b.myScore : -1;
+                const prA = a.predictedScore != null ? a.predictedScore : -1;
+                const prB = b.predictedScore != null ? b.predictedScore : -1;
+                switch (sortBy) {
+                  case "recent":   return Number(b.id) - Number(a.id);
+                  case "oldest":   return Number(a.id) - Number(b.id);
+                  case "scoreHigh": return myB - myA || Number(b.id) - Number(a.id);
+                  case "scoreLow":  return myA - myB || Number(b.id) - Number(a.id);
+                  case "predHigh":  return prB - prA || Number(b.id) - Number(a.id);
+                  default:         return Number(b.id) - Number(a.id);
                 }
-                return Number(b.id) - Number(a.id); // 최신순(id=타임스탬프)
               })
               .map((e) => {
               const open = expandedId === e.id;
@@ -1058,9 +1092,16 @@ function App() {
                       </button>
                     )}
                     {/* 평가자별 점수 */}
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                      {e.predictedScore != null && (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
+                      {e.predictedScore != null ? (
                         <span style={{ fontSize: 12, color: C.sub }}>예측 {e.predictedScore}</span>
+                      ) : (
+                        <button onClick={() => derivePredicted(e)} disabled={axesLoading === e.id}
+                          style={{ fontSize: 11, padding: "3px 10px", borderRadius: 10,
+                            background: "transparent", color: C.gold, border: `1px solid ${C.goldDim}`,
+                            cursor: "pointer" }}>
+                          {axesLoading === e.id ? "도출 중…" : "예측 점수 도출"}
+                        </button>
                       )}
                       {e.myScore != null && (
                         <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 10,
@@ -1291,10 +1332,22 @@ function App() {
                       {loading ? "불러오는 중…" : open ? "접기 ▲" : "자세히 ▼"}
                     </span>
                   </div>
-                  <div style={{ fontFamily: "Georgia, serif", fontSize: 17, margin: "4px 0" }}>
-                    {r.name}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0" }}>
+                    {(r.predictedScore != null) && (
+                      <div style={{ flexShrink: 0, width: 38, height: 38, borderRadius: "50%",
+                        border: `2px solid ${C.gold}`, display: "flex", alignItems: "center",
+                        justifyContent: "center", fontSize: 13, fontWeight: 700, color: C.gold }}>
+                        {r.predictedScore}
+                      </div>
+                    )}
+                    <div style={{ fontFamily: "Georgia, serif", fontSize: 17 }}>
+                      {r.name}
+                    </div>
                   </div>
                   <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{r.why}</div>
+                  {r.predictedScore != null && (
+                    <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>예측 점수는 추정값입니다</div>
+                  )}
                   <div style={{ fontSize: 12, color: C.goldDim, marginTop: 6 }}>{r.est}</div>
                 </div>
 
