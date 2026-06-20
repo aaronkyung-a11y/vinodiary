@@ -74,8 +74,9 @@ const C = {
 
 // 축 라벨 한글화
 const AXIS_LABELS = {
-  mineral: "미네랄", acidity: "산도", body: "바디", fruit: "과실", complexity: "복합미",
-  peat: "피트", sherry: "셰리/캐스크", abv: "도수감",
+  mineral: "미네랄", acidity: "산도", salinity: "짠맛", body: "바디",
+  texture: "질감", fruit: "과실", complexity: "복합미",
+  peat: "피트", sherry: "셰리", spice: "스파이스", oiliness: "오일리", abv: "도수감",
 };
 function AxisBars({ axes }) {
   if (!axes || typeof axes !== "object") return null;
@@ -783,6 +784,29 @@ function App() {
                       {profile.inconsistent.map((c, i) => (
                         <div key={i} style={{ color: C.sub, marginTop: 3 }}>· {c}</div>
                       ))}
+                    </div>
+                  )}
+                  {/* 무엇을 중요하게 보는지: 중요도 막대 */}
+                  {(profile.importanceWine || profile.importanceWhisky) && (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
+                      <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>무엇을 중요하게 보는지</span>
+                      {profile.importanceWine && Object.keys(profile.importanceWine).length > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ fontSize: 11, color: C.wine, marginBottom: 4 }}>● 와인</div>
+                          <AxisBars axes={profile.importanceWine} />
+                        </div>
+                      )}
+                      {profile.importanceWhisky && Object.keys(profile.importanceWhisky).length > 0 && (
+                        <div style={{ marginTop: 10 }}>
+                          <div style={{ fontSize: 11, color: C.whisky, marginBottom: 4 }}>● 위스키</div>
+                          <AxisBars axes={profile.importanceWhisky} />
+                        </div>
+                      )}
+                      {profile.importanceNote && (
+                        <div style={{ fontSize: 12, color: C.sub, marginTop: 8, lineHeight: 1.5 }}>
+                          {profile.importanceNote}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
