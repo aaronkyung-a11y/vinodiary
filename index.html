@@ -37,6 +37,18 @@ const { useState, useEffect, useRef } = React;
 // ============================================================
 
 const API_KEY_LS = "vinodiary:apiUrl";
+const APP_VERSION = "v0.14";
+
+// 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
+function kstNow() {
+  const d = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const iso = d.toISOString(); // ...UTC지만 +9 보정됨
+  return iso.slice(0, 10) + " " + iso.slice(11, 16);
+}
+// KST 날짜만 "YYYY-MM-DD"
+function kstDate() {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
 
 // ---------- API 레이어 ----------
 const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbzW91cg-naS0BkDikV48ac2x7-LBw9lNNS-Ar2TBJx54Gj0FvbwE_4Aw34CsLwmIbBKSw/exec";
@@ -146,6 +158,17 @@ function App() {
   const [profile, setProfile] = useState(null);     // 취향 분석 결과
   const [profileLoading, setProfileLoading] = useState(false);
   const [toast, setToast] = useState(null); // {msg, kind: "loading"|"done"|"error"}
+  const [search, setSearch] = useState("");
+  // 월드컵 상태
+  const [wcCategory, setWcCategory] = useState(null); // champagne|white|red|whisky
+  const [wcSource, setWcSource] = useState("mix");     // cellar|outside|mix
+  const [wcSize, setWcSize] = useState(8);             // 4|8|16
+  const [wcRound, setWcRound] = useState(null);        // 현재 라운드 후보 배열
+  const [wcPair, setWcPair] = useState(0);             // 현재 맞대결 인덱스
+  const [wcWinners, setWcWinners] = useState([]);      // 이번 라운드 승자들
+  const [wcChampion, setWcChampion] = useState(null);  // 우승
+  const [wcRunnerUp, setWcRunnerUp] = useState(null);  // 준우승
+  const [wcLoading, setWcLoading] = useState(false);
   const fileRef = useRef(null);
 
   useEffect(() => {
@@ -232,7 +255,7 @@ function App() {
   async function saveResult(myScore, status) {
     const entry = {
       id: Date.now(),
-      date: new Date().toISOString().slice(0, 10),
+      date: kstNow(),
       name: result.name,
       kind: result.kind,
       resembles: result.resembles,
@@ -242,6 +265,7 @@ function App() {
       image: "",
       status: status || "tasted",
       axes: result.axes || null,
+      subtype: result.subtype || "",
     };
     await savingApi({ action: "save", entry }, status === "wishlist" ? "위시리스트에 담음" : "저장됨");
     setResult(null); setText(""); setImageData(null); setImagePreview(null);
@@ -254,7 +278,7 @@ function App() {
     const d = recDetail[rec.name] || {};
     const entry = {
       id: Date.now(),
-      date: new Date().toISOString().slice(0, 10),
+      date: kstNow(),
       name: rec.name,
       kind: rec.kind,
       resembles: rec.why || "",
@@ -302,6 +326,135 @@ function App() {
       setProfileLoading(false);
     }
   }
+
+  // ── 월드컵 ──
+  // 카테고리에 맞는 셀러 술 추출
+  function cellarForCategory(cat) {
+    return entries.filter((e) => {
+      if (e.status === "wishlist") return false;
+      if (cat === "whisky") return e.kind === "whisky";
+      if (e.kind !== "wine") return false;
+      // subtype이 있으면 그걸로 정확히 분류
+      if (e.subtype) {
+        if (cat === "champagne") return e.subtype === "champagne";
+        if (cat === "white") return e.subtype === "white" || e.subtype === "sweet";
+        if (cat === "red") return e.subtype === "red";
+        return true;
+      }
+      // subtype 없는 기존 기록: 키워드로 추정(샴페인만 비교적 확실)
+      const t = ((e.name || "") + " " + (e.resembles || "")).toLowerCase();
+      if (cat === "champagne") return /샴페인|champagne|크레망|cr[ée]mant|스파클|sparkl|franciacorta|cava|trento|샹파뉴/.test(t);
+      if (cat === "red") return /레드|red|루즈|rouge|피노 누아|pinot noir|카베르네|cabernet|메를로|merlot|시라|syrah|네비올로|nebbiolo|산지오베제|sangiovese/.test(t);
+      if (cat === "white") return /화이트|white|블랑|blanc|샤르도네|chardonnay|리슬링|riesling|소비뇽|sauvignon|카리칸테|carricante/.test(t) && !/샴페인|champagne|스파클|sparkl/.test(t);
+      return true;
+    });
+  }
+
+  function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  async function startWorldcup() {
+    if (!wcCategory) return;
+    setWcLoading(true);
+    setWcChampion(null); setWcRunnerUp(null);
+    try {
+      let pool = [];
+      // 셀러 후보
+      if (wcSource === "cellar" || wcSource === "mix") {
+        pool = cellarForCategory(wcCategory).map((e) => ({
+          name: e.name, kind: e.kind, why: e.resembles || "", fromCellar: true,
+        }));
+      }
+      // 셀러밖(AI 생성)
+      if (wcSource === "outside" || wcSource === "mix") {
+        const need = wcSource === "outside" ? wcSize : Math.max(0, wcSize - pool.length);
+        if (need > 0) {
+          const exclude = pool.map((p) => p.name);
+          const gen = await api({ action: "worldcupCandidates", category: wcCategory, count: need + 2, exclude });
+          if (Array.isArray(gen)) {
+            gen.forEach((g) => pool.push({ name: g.name, kind: g.kind, why: g.why || "", fromCellar: false }));
+          }
+        }
+      }
+      // 이름 중복 제거
+      const seen = new Set();
+      pool = pool.filter((p) => { const k = p.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+
+      if (pool.length < 2) {
+        setError("후보가 부족해요. '셀러밖 포함' 또는 '혼합'을 선택해 보세요.");
+        setTimeout(() => setError(null), 2600);
+        setWcLoading(false);
+        return;
+      }
+      // 크기에 맞춰 자르기(부족하면 가능한 만큼, 2의 거듭제곱으로)
+      let size = wcSize;
+      while (size > pool.length) size = size / 2;
+      if (size < 2) size = 2;
+      const round = shuffle(pool).slice(0, size);
+      setWcRound(round);
+      setWcPair(0);
+      setWcWinners([]);
+    } catch (e) {
+      setError("월드컵을 시작하지 못했어요.");
+      setTimeout(() => setError(null), 2400);
+    } finally {
+      setWcLoading(false);
+    }
+  }
+
+  function pickWinner(winner) {
+    // 현재 맞대결의 두 후보
+    const a = wcRound[wcPair * 2];
+    const b = wcRound[wcPair * 2 + 1];
+    const loser = winner === a ? b : a;
+    const nextWinners = [...wcWinners, winner];
+    const nextPairStart = (wcPair + 1) * 2;
+    if (nextPairStart >= wcRound.length) {
+      // 라운드 종료
+      if (nextWinners.length === 1) {
+        // 직전이 결승이었음 → 우승=winner, 준우승=결승 패자
+        finishWorldcup(winner, loser);
+      } else {
+        setWcRound(nextWinners);
+        setWcWinners([]);
+        setWcPair(0);
+      }
+    } else {
+      setWcWinners(nextWinners);
+      setWcPair(wcPair + 1);
+    }
+  }
+
+  async function finishWorldcup(champion, runnerUp) {
+    setWcChampion(champion);
+    setWcRunnerUp(runnerUp || null);
+    // 우승 술이 셀러에 없으면 위시리스트에 자동 추가(취향 신호)
+    if (champion && !champion.fromCellar) {
+      const exists = entries.some((e) => (e.name || "").toLowerCase() === champion.name.toLowerCase());
+      if (!exists) {
+        const entry = {
+          id: Date.now(), date: kstNow(),
+          name: champion.name, kind: champion.kind, resembles: champion.why || "월드컵 우승",
+          predictedScore: null, reason: "월드컵에서 선택한 술", myScore: null,
+          image: "", status: "wishlist", axes: null,
+        };
+        await savingApi({ action: "save", entry }, "우승작 위시리스트에 담음");
+        refresh();
+      }
+    }
+  }
+
+  function resetWorldcup() {
+    setWcRound(null); setWcPair(0); setWcWinners([]);
+    setWcChampion(null); setWcRunnerUp(null);
+  }
+
 
   // 평가자별 점수 설정. rater="me"면 내 점수, 그 외 이름이면 친구 점수.
   async function setRating(id, rater, score) {
@@ -408,6 +561,8 @@ function App() {
           <h1 style={{ fontFamily: "Georgia, serif", fontWeight: 500, fontSize: 30,
             margin: "4px 0 18px" }}>
             Vino<span style={{ color: C.gold }}>·</span>Diary
+            <span style={{ fontSize: 12, color: C.goldDim, fontFamily: "system-ui, sans-serif",
+              marginLeft: 8, letterSpacing: 0, verticalAlign: "middle" }}>{APP_VERSION}</span>
           </h1>
           <p style={{ color: C.sub, fontSize: 14, lineHeight: 1.6, marginBottom: 14 }}>
             처음이시군요. Apps Script로 배포한 <b style={{ color: C.text }}>Web App URL</b>을
@@ -442,6 +597,8 @@ function App() {
           <h1 style={{ margin: "4px 0 0", fontFamily: "Georgia, serif", fontWeight: 500,
             fontSize: 28, letterSpacing: 1 }}>
             Vino<span style={{ color: C.gold }}>·</span>Diary
+            <span style={{ fontSize: 11, color: C.goldDim, fontFamily: "system-ui, sans-serif",
+              marginLeft: 8, letterSpacing: 0, verticalAlign: "middle" }}>{APP_VERSION}</span>
           </h1>
         </div>
         <button onClick={refresh} style={{ background: "none", border: `1px solid ${C.line}`,
@@ -563,6 +720,20 @@ function App() {
               </div>
             )}
             {entries.length > 0 && (
+              <div style={{ position: "relative", marginBottom: 10 }}>
+                <input value={search} onChange={(e) => setSearch(e.target.value)}
+                  placeholder="술 이름 검색 (한글·영문·부분)"
+                  style={{ width: "100%", boxSizing: "border-box", background: C.panel,
+                    border: `1px solid ${C.line}`, borderRadius: 10, color: C.text,
+                    padding: "10px 34px 10px 12px", fontSize: 14 }} />
+                {search && (
+                  <button onClick={() => setSearch("")}
+                    style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+                      background: "none", border: "none", color: C.sub, fontSize: 18, cursor: "pointer" }}>×</button>
+                )}
+              </div>
+            )}
+            {entries.length > 0 && (
               <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
                 {[["all", "전체"], ["wine", "와인"], ["whisky", "위스키"], ["wishlist", "위시리스트"]].map(([k, label]) => {
                   const isWish = k === "wishlist";
@@ -582,10 +753,19 @@ function App() {
             )}
             {entries
               .filter((e) => {
-                if (kindFilter === "wishlist") return e.status === "wishlist";
-                // 종류 필터는 시음한 셀러 기준(위시리스트는 제외해 깔끔하게)
-                if (e.status === "wishlist") return false;
-                return kindFilter === "all" || e.kind === kindFilter;
+                if (kindFilter === "wishlist") {
+                  if (e.status !== "wishlist") return false;
+                } else {
+                  if (e.status === "wishlist") return false;
+                  if (!(kindFilter === "all" || e.kind === kindFilter)) return false;
+                }
+                // 검색: 이름 + 닮은 것, 대소문자·부분 매칭
+                if (search.trim()) {
+                  const q = search.trim().toLowerCase();
+                  const hay = ((e.name || "") + " " + (e.resembles || "")).toLowerCase();
+                  if (!hay.includes(q)) return false;
+                }
+                return true;
               })
               .map((e) => {
               const open = expandedId === e.id;
@@ -736,6 +916,19 @@ function App() {
               </div>
               );
             })}
+            {entries.length > 0 && search.trim() &&
+              entries.filter((e) => {
+                if (kindFilter === "wishlist") { if (e.status !== "wishlist") return false; }
+                else { if (e.status === "wishlist") return false;
+                  if (!(kindFilter === "all" || e.kind === kindFilter)) return false; }
+                const q = search.trim().toLowerCase();
+                const hay = ((e.name || "") + " " + (e.resembles || "")).toLowerCase();
+                return hay.includes(q);
+              }).length === 0 && (
+                <div style={{ textAlign: "center", color: C.sub, padding: "30px 20px", fontSize: 13 }}>
+                  "{search}"에 해당하는 술이 없어요.
+                </div>
+              )}
           </section>
         )}
 
@@ -930,6 +1123,158 @@ function App() {
             )}
           </section>
         )}
+
+        {tab === "worldcup" && (
+          <section>
+            {/* 우승 결과 화면 */}
+            {wcChampion ? (
+              <div style={{ textAlign: "center", paddingTop: 20 }}>
+                <div style={{ fontSize: 12, letterSpacing: 3, color: C.goldDim }}>WINNER</div>
+                <div style={{ fontSize: 44, margin: "10px 0" }}>♛</div>
+                <div style={{ fontFamily: "Georgia, serif", fontSize: 24, color: C.gold }}>
+                  {wcChampion.name}
+                </div>
+                {wcChampion.why && (
+                  <div style={{ fontSize: 13, color: C.sub, marginTop: 8, lineHeight: 1.5,
+                    maxWidth: 360, marginLeft: "auto", marginRight: "auto" }}>{wcChampion.why}</div>
+                )}
+                {wcRunnerUp && (
+                  <div style={{ fontSize: 12, color: C.sub, marginTop: 16 }}>
+                    준우승 · {wcRunnerUp.name}
+                  </div>
+                )}
+                {!wcChampion.fromCellar && (
+                  <div style={{ fontSize: 12, color: C.goldDim, marginTop: 8 }}>
+                    위시리스트에 담았어요
+                  </div>
+                )}
+                <button onClick={resetWorldcup}
+                  style={{ marginTop: 24, padding: "12px 24px", background: C.gold, color: "#1B160C",
+                    border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                  다시 하기
+                </button>
+              </div>
+            ) : wcRound ? (
+              /* 대결 화면 */
+              (() => {
+                const a = wcRound[wcPair * 2];
+                const b = wcRound[wcPair * 2 + 1];
+                const totalPairs = Math.floor(wcRound.length / 2);
+                const roundName = wcRound.length >= 16 ? "16강" : wcRound.length >= 8 ? "8강"
+                  : wcRound.length >= 4 ? "4강" : "결승";
+                if (!b) { // 홀수 부전승 처리
+                  setTimeout(() => pickWinner(a), 0);
+                  return null;
+                }
+                return (
+                  <div>
+                    <div style={{ textAlign: "center", fontSize: 12, color: C.goldDim,
+                      letterSpacing: 2, marginBottom: 4 }}>
+                      {roundName} · {wcPair + 1} / {totalPairs}
+                    </div>
+                    <div style={{ textAlign: "center", fontSize: 11, color: C.sub, marginBottom: 20 }}>
+                      더 끌리는 쪽을 고르세요
+                    </div>
+                    {[a, b].map((c, i) => (
+                      <div key={i}>
+                        <button onClick={() => pickWinner(c)}
+                          style={{ width: "100%", padding: "22px 18px", marginBottom: i === 0 ? 0 : 0,
+                            background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16,
+                            cursor: "pointer", textAlign: "left", color: C.text }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ width: 7, height: 7, borderRadius: "50%",
+                              background: c.kind === "whisky" ? C.whisky : C.wine }} />
+                            <span style={{ fontSize: 10, color: C.sub, letterSpacing: 1 }}>
+                              {c.fromCellar ? "내 셀러" : "추천"}
+                            </span>
+                          </div>
+                          <div style={{ fontFamily: "Georgia, serif", fontSize: 19, margin: "6px 0" }}>
+                            {c.name}
+                          </div>
+                          {c.why && <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.5 }}>{c.why}</div>}
+                        </button>
+                        {i === 0 && (
+                          <div style={{ textAlign: "center", color: C.goldDim, fontSize: 12,
+                            margin: "10px 0", fontStyle: "italic" }}>VS</div>
+                        )}
+                      </div>
+                    ))}
+                    <button onClick={resetWorldcup}
+                      style={{ width: "100%", marginTop: 16, padding: "10px", background: "transparent",
+                        color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 12,
+                        cursor: "pointer" }}>그만두기</button>
+                  </div>
+                );
+              })()
+            ) : (
+              /* 설정 화면 */
+              <div>
+                <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 8 }}>
+                  카테고리
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
+                  {[["champagne", "샴페인"], ["white", "화이트"], ["red", "레드"], ["whisky", "위스키"]].map(([k, label]) => {
+                    const sel = wcCategory === k;
+                    return (
+                      <button key={k} onClick={() => setWcCategory(k)}
+                        style={{ flex: "1 0 22%", padding: "12px 0", fontSize: 13,
+                          background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
+                          border: `1px solid ${sel ? C.gold : C.line}`, borderRadius: 10,
+                          cursor: "pointer", fontWeight: sel ? 700 : 400 }}>{label}</button>
+                    );
+                  })}
+                </div>
+
+                <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 8 }}>
+                  후보 구성
+                </div>
+                <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
+                  {[["cellar", "셀러만"], ["outside", "셀러밖"], ["mix", "혼합"]].map(([k, label]) => {
+                    const sel = wcSource === k;
+                    return (
+                      <button key={k} onClick={() => setWcSource(k)}
+                        style={{ flex: 1, padding: "10px 0", fontSize: 13,
+                          background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
+                          border: `1px solid ${sel ? C.gold : C.line}`, borderRadius: 10,
+                          cursor: "pointer", fontWeight: sel ? 700 : 400 }}>{label}</button>
+                    );
+                  })}
+                </div>
+
+                <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 8 }}>
+                  규모
+                </div>
+                <div style={{ display: "flex", gap: 6, marginBottom: 22 }}>
+                  {[4, 8, 16].map((n) => {
+                    const sel = wcSize === n;
+                    return (
+                      <button key={n} onClick={() => setWcSize(n)}
+                        style={{ flex: 1, padding: "10px 0", fontSize: 13,
+                          background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
+                          border: `1px solid ${sel ? C.gold : C.line}`, borderRadius: 10,
+                          cursor: "pointer", fontWeight: sel ? 700 : 400 }}>{n}강</button>
+                    );
+                  })}
+                </div>
+
+                <button onClick={startWorldcup} disabled={!wcCategory || wcLoading}
+                  style={{ width: "100%", padding: 15, background: wcCategory ? C.gold : C.panel2,
+                    color: wcCategory ? "#1B160C" : C.sub, border: "none", borderRadius: 12,
+                    fontSize: 15, fontWeight: 700, cursor: wcCategory ? "pointer" : "default",
+                    opacity: wcLoading ? 0.6 : 1 }}>
+                  {wcLoading ? "후보 준비 중…" : "월드컵 시작"}
+                </button>
+                {error && (
+                  <div style={{ color: C.gold, fontSize: 13, marginTop: 12, textAlign: "center" }}>{error}</div>
+                )}
+                <div style={{ fontSize: 12, color: C.sub, marginTop: 16, lineHeight: 1.6 }}>
+                  둘 중 더 끌리는 술을 골라 토너먼트로 최애를 가립니다. 우승작이 셀러에 없으면
+                  위시리스트에 담아둬요.
+                </div>
+              </div>
+            )}
+          </section>
+        )}
       </main>
 
       {/* 저장 상태 토스트 */}
@@ -953,7 +1298,7 @@ function App() {
 
       <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.panel,
         borderTop: `1px solid ${C.line}`, display: "flex", maxWidth: 560, margin: "0 auto" }}>
-        {[["add", "분석", "✦"], ["cellar", "셀러", "▤"], ["recommend", "추천", "✧"]].map(
+        {[["add", "분석", "✦"], ["cellar", "셀러", "▤"], ["recommend", "추천", "✧"], ["worldcup", "월드컵", "♛"]].map(
           ([id, label, icon]) => (
             <button key={id} onClick={() => setTab(id)}
               style={{ flex: 1, padding: "14px 0", background: "none", border: "none",
