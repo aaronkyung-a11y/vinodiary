@@ -104,10 +104,13 @@ function App() {
   const [recs, setRecs] = useState(null);
   const [recLoading, setRecLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [kindFilter, setKindFilter] = useState("all"); // all | wine | whisky
-  const [expandedId, setExpandedId] = useState(null);   // 셀러 카드 펼침
-  const [recDetail, setRecDetail] = useState({});        // 추천 상세 {name: data}
-  const [recDetailLoading, setRecDetailLoading] = useState(null); // 로딩 중인 추천 name
+  const [kindFilter, setKindFilter] = useState("all"); // all | wine | whisky | wishlist
+  const [expandedId, setExpandedId] = useState(null);
+  const [recDetail, setRecDetail] = useState({});
+  const [recDetailLoading, setRecDetailLoading] = useState(null);
+  const [recFor, setRecFor] = useState("me"); // 추천 기준: me | common | 친구이름
+  const [raters, setRaters] = useState([]);    // 등록된 친구 목록
+  const [ratingFor, setRatingFor] = useState({}); // {entryId: "친구이름"} 평가자 선택
   const fileRef = useRef(null);
 
   useEffect(() => {
@@ -118,7 +121,12 @@ function App() {
     setSyncing(true);
     try {
       const r = await apiList();
-      setEntries(r.entries || []);
+      const list = r.entries || [];
+      setEntries(list);
+      // 친구 목록 수집 (scores의 모든 키)
+      const set = {};
+      list.forEach((e) => { if (e.scores) Object.keys(e.scores).forEach((n) => (set[n] = true)); });
+      setRaters(Object.keys(set));
     } catch (e) {
       setError("기록을 불러오지 못했어요. API URL을 확인하세요.");
     } finally {
@@ -167,7 +175,7 @@ function App() {
     }
   }
 
-  async function saveResult(myScore) {
+  async function saveResult(myScore, status) {
     const entry = {
       id: Date.now(),
       date: new Date().toISOString().slice(0, 10),
@@ -177,7 +185,8 @@ function App() {
       predictedScore: result.predictedScore,
       reason: result.reason,
       myScore: myScore ?? null,
-      image: "", // 시트 용량 보호: 이미지는 저장 안 함(원하면 v0.3에서 Drive 연동)
+      image: "",
+      status: status || "tasted",
     };
     await api({ action: "save", entry });
     setResult(null); setText(""); setImageData(null); setImagePreview(null);
@@ -185,9 +194,50 @@ function App() {
     refresh();
   }
 
+  // 추천 술을 셀러/위시리스트로 저장
+  async function saveFromRec(rec, myScore, status) {
+    const d = recDetail[rec.name] || {};
+    const entry = {
+      id: Date.now(),
+      date: new Date().toISOString().slice(0, 10),
+      name: rec.name,
+      kind: rec.kind,
+      resembles: rec.why || "",
+      predictedScore: null,
+      reason: d.profile || rec.why || "",
+      myScore: myScore ?? null,
+      image: "",
+      status: status || "tasted",
+    };
+    await api({ action: "save", entry });
+    setError(status === "wishlist" ? "위시리스트에 담았어요." : "셀러에 저장했어요.");
+    setTimeout(() => setError(null), 2200);
+    refresh();
+  }
+
   async function setScore(id, score) {
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, myScore: score } : e)));
     await api({ action: "setScore", id, myScore: score });
+  }
+
+  // 평가자별 점수 설정. rater="me"면 내 점수, 그 외 이름이면 친구 점수.
+  async function setRating(id, rater, score) {
+    setEntries((prev) => prev.map((e) => {
+      if (e.id !== id) return e;
+      if (rater === "me" || rater === "나") return { ...e, myScore: score, status: "tasted" };
+      const scores = { ...(e.scores || {}), [rater]: score };
+      return { ...e, scores, status: "tasted" };
+    }));
+    await api({ action: "setRating", id, rater, score });
+    if (rater !== "me" && rater !== "나" && !raters.includes(rater)) {
+      setRaters((prev) => [...prev, rater]);
+    }
+  }
+
+  // 위시리스트 항목을 마셔봄 → 평가 + tasted 전환
+  async function tasteItem(id, score) {
+    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, myScore: score, status: "tasted" } : e)));
+    await api({ action: "taste", id, myScore: score });
   }
 
   async function removeEntry(id) {
@@ -198,7 +248,7 @@ function App() {
   async function loadRecs() {
     setRecLoading(true); setRecs(null);
     try {
-      const r = await api({ action: "recommend" });
+      const r = await api({ action: "recommend", forWhom: recFor });
       setRecs(Array.isArray(r) ? r : []);
     } catch (e) {
       setRecs([]);
@@ -312,7 +362,7 @@ function App() {
                   <div style={{ fontSize: 14 }}>라벨 사진 올리기</div>
                 </div>
               )}
-              <input ref={fileRef} type="file" accept="image/*" capture="environment"
+              <input ref={fileRef} type="file" accept="image/*"
                 onChange={onPickImage} style={{ display: "none" }} />
             </div>
 
@@ -403,23 +453,33 @@ function App() {
               </div>
             )}
             {entries.length > 0 && (
-              <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-                {[["all", "전체"], ["wine", "와인"], ["whisky", "위스키"]].map(([k, label]) => (
+              <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+                {[["all", "전체"], ["wine", "와인"], ["whisky", "위스키"], ["wishlist", "위시리스트"]].map(([k, label]) => {
+                  const isWish = k === "wishlist";
+                  const count = isWish ? entries.filter((e) => e.status === "wishlist").length : 0;
+                  return (
                   <button key={k} onClick={() => setKindFilter(k)}
-                    style={{ flex: 1, padding: "8px 0", fontSize: 13,
+                    style={{ flex: isWish ? "1 0 100%" : 1, padding: "8px 0", fontSize: 13,
                       background: kindFilter === k ? C.gold : C.panel,
                       color: kindFilter === k ? "#1B160C" : C.sub,
                       border: `1px solid ${kindFilter === k ? C.gold : C.line}`,
                       borderRadius: 8, cursor: "pointer", fontWeight: kindFilter === k ? 700 : 400 }}>
-                    {label}
+                    {label}{isWish && count > 0 ? ` (${count})` : ""}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             )}
             {entries
-              .filter((e) => kindFilter === "all" || e.kind === kindFilter)
+              .filter((e) => {
+                if (kindFilter === "wishlist") return e.status === "wishlist";
+                // 종류 필터는 시음한 셀러 기준(위시리스트는 제외해 깔끔하게)
+                if (e.status === "wishlist") return false;
+                return kindFilter === "all" || e.kind === kindFilter;
+              })
               .map((e) => {
               const open = expandedId === e.id;
+              const isWish = e.status === "wishlist";
               return (
               <div key={e.id} style={{ background: C.panel, border: `1px solid ${open ? C.goldDim : C.line}`,
                 borderRadius: 14, padding: 14, marginBottom: 10 }}>
@@ -431,7 +491,7 @@ function App() {
                       <span style={{ width: 7, height: 7, borderRadius: "50%",
                         background: e.kind === "whisky" ? C.whisky : C.wine }} />
                       <span style={{ fontSize: 10, color: C.sub, letterSpacing: 1 }}>
-                        {e.kind === "whisky" ? "WHISKY" : "WINE"} · {e.myScore != null ? "내 점수" : "예측"} · {e.date}
+                        {e.kind === "whisky" ? "WHISKY" : "WINE"} · {isWish ? "위시리스트" : (e.myScore != null ? "내 점수" : "예측")} · {e.date}
                       </span>
                     </div>
                     <div style={{ fontFamily: "Georgia, serif", fontSize: 16, margin: "3px 0",
@@ -455,22 +515,71 @@ function App() {
                         <div style={{ color: C.text, marginTop: 2 }}>{e.reason}</div>
                       </div>
                     )}
-                    <div style={{ display: "flex", gap: 16, color: C.sub, fontSize: 12 }}>
-                      {e.predictedScore != null && <span>예측 {e.predictedScore}</span>}
-                      {e.myScore != null && <span style={{ color: C.gold }}>내 점수 {e.myScore}</span>}
+                    {/* 평가자별 점수 */}
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                      {e.predictedScore != null && (
+                        <span style={{ fontSize: 12, color: C.sub }}>예측 {e.predictedScore}</span>
+                      )}
+                      {e.myScore != null && (
+                        <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 10,
+                          background: C.panel2, color: C.gold }}>나 {e.myScore}</span>
+                      )}
+                      {e.scores && Object.keys(e.scores).map((n) => (
+                        <span key={n} style={{ fontSize: 12, padding: "2px 8px", borderRadius: 10,
+                          background: C.panel2, color: C.text }}>{n} {e.scores[n]}</span>
+                      ))}
+                    </div>
+
+                    {/* 평가자 선택 + 점수 입력 */}
+                    <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 10 }}>
+                      <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 6 }}>평가 추가/수정</div>
+                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
+                        {["나"].concat(raters).map((name) => {
+                          const sel = (ratingFor[e.id] || "나") === name;
+                          return (
+                            <button key={name} onClick={() => setRatingFor((p) => ({ ...p, [e.id]: name }))}
+                              style={{ padding: "4px 10px", fontSize: 12, borderRadius: 14,
+                                background: sel ? C.gold : C.panel2, color: sel ? "#1B160C" : C.sub,
+                                border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer" }}>
+                              {name}
+                            </button>
+                          );
+                        })}
+                        <button onClick={() => {
+                          const nm = (prompt("친구 이름을 입력하세요") || "").trim();
+                          if (nm) { setRatingFor((p) => ({ ...p, [e.id]: nm }));
+                            if (!raters.includes(nm) && nm !== "나") setRaters((prev) => [...prev, nm]); }
+                        }} style={{ padding: "4px 10px", fontSize: 12, borderRadius: 14,
+                          background: "transparent", color: C.gold, border: `1px dashed ${C.goldDim}`,
+                          cursor: "pointer" }}>+ 친구</button>
+                      </div>
+                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                        {[70, 80, 85, 90, 95].map((s) => (
+                          <button key={s} onClick={() => {
+                            const who = ratingFor[e.id] || "나";
+                            setRating(e.id, who === "나" ? "me" : who, s);
+                          }}
+                            style={{ flex: "1 0 17%", padding: "7px 0", fontSize: 12, background: C.panel2,
+                              color: C.text, border: `1px solid ${C.line}`, borderRadius: 6,
+                              cursor: "pointer" }}>{s}</button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 )}
 
-                {/* 미시음 점수 입력 */}
-                {e.myScore == null && (
-                  <div style={{ marginTop: 10, display: "flex", gap: 5, flexWrap: "wrap" }}>
-                    {[70, 80, 85, 90, 95].map((s) => (
-                      <button key={s} onClick={() => setScore(e.id, s)}
-                        style={{ padding: "5px 10px", fontSize: 12, background: C.panel2,
-                          color: C.text, border: `1px solid ${C.line}`, borderRadius: 6,
-                          cursor: "pointer" }}>{s}</button>
-                    ))}
+                {/* 위시리스트: 펼치지 않아도 빠른 평가(나 기준) */}
+                {isWish && !open && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 6 }}>마셔봤다면 평가하기 (카드를 펼치면 친구도 평가 가능)</div>
+                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                      {[70, 80, 85, 90, 95].map((s) => (
+                        <button key={s} onClick={() => tasteItem(e.id, s)}
+                          style={{ padding: "5px 12px", fontSize: 12, background: C.panel2,
+                            color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 6,
+                            cursor: "pointer" }}>{s}</button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -481,12 +590,37 @@ function App() {
 
         {tab === "recommend" && (
           <section>
+            <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 8, letterSpacing: 1 }}>
+              누구의 취향으로 추천받을까요?
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+              {[["me", "나"], ["common", "다 같이"]].concat(raters.map((n) => [n, n])).map(([k, label]) => {
+                const sel = recFor === k;
+                return (
+                  <button key={k} onClick={() => setRecFor(k)}
+                    style={{ padding: "7px 14px", fontSize: 13, borderRadius: 16,
+                      background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
+                      border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer",
+                      fontWeight: sel ? 700 : 400 }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
             <button onClick={loadRecs} disabled={recLoading}
               style={{ width: "100%", padding: 14, background: C.gold, color: "#1B160C",
                 border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
                 cursor: "pointer", opacity: recLoading ? 0.6 : 1, marginBottom: 16 }}>
-              {recLoading ? "고르는 중…" : "내 취향과 비슷한 술 추천받기"}
+              {recLoading ? "고르는 중…" :
+                recFor === "common" ? "다 같이 즐길 술 추천받기" :
+                recFor === "me" ? "내 취향과 비슷한 술 추천받기" :
+                `${recFor} 취향으로 추천받기`}
             </button>
+            {error && tab === "recommend" && (
+              <div style={{ color: C.gold, fontSize: 13, marginBottom: 10, textAlign: "center" }}>
+                {error}
+              </div>
+            )}
             {recs && recs.length === 0 && (
               <div style={{ color: C.sub, textAlign: "center" }}>추천을 불러오지 못했어요.</div>
             )}
@@ -534,6 +668,27 @@ function App() {
                       <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>서빙 팁</span>
                       <div style={{ color: C.text, marginTop: 2 }}>{d.serving}</div></div>)}
                     {d.est && <div style={{ color: C.goldDim, fontSize: 12 }}>{d.est}</div>}
+
+                    {/* 액션: 먹어봤으면 평가 / 안 먹어봤으면 위시리스트 */}
+                    <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
+                      <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 7 }}>
+                        마셔봤다면 평가, 아니면 위시리스트에 담기
+                      </div>
+                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
+                        {[70, 80, 85, 90, 95].map((s) => (
+                          <button key={s} onClick={() => saveFromRec(r, s, "tasted")}
+                            style={{ flex: "1 0 17%", padding: "7px 0", fontSize: 12, background: C.panel2,
+                              color: C.text, border: `1px solid ${C.line}`, borderRadius: 6,
+                              cursor: "pointer" }}>{s}</button>
+                        ))}
+                      </div>
+                      <button onClick={() => saveFromRec(r, null, "wishlist")}
+                        style={{ width: "100%", padding: "10px", background: "transparent",
+                          color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 8,
+                          fontSize: 13, cursor: "pointer" }}>
+                        ✧ 위시리스트에 추가
+                      </button>
+                    </div>
                   </div>
                 )}
                 {open && d && d.error && (
