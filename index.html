@@ -104,6 +104,10 @@ function App() {
   const [recs, setRecs] = useState(null);
   const [recLoading, setRecLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [kindFilter, setKindFilter] = useState("all"); // all | wine | whisky
+  const [expandedId, setExpandedId] = useState(null);   // 셀러 카드 펼침
+  const [recDetail, setRecDetail] = useState({});        // 추천 상세 {name: data}
+  const [recDetailLoading, setRecDetailLoading] = useState(null); // 로딩 중인 추천 name
   const fileRef = useRef(null);
 
   useEffect(() => {
@@ -218,6 +222,22 @@ function App() {
       setError("합치기에 실패했어요.");
     } finally {
       setMerging(false);
+    }
+  }
+
+  async function loadRecDetail(name, kind) {
+    if (recDetail[name]) {
+      setRecDetail((p) => ({ ...p, [name]: { ...p[name], _open: !p[name]._open } }));
+      return;
+    }
+    setRecDetailLoading(name);
+    try {
+      const r = await api({ action: "detail", name, kind });
+      setRecDetail((p) => ({ ...p, [name]: { ...r, _open: true } }));
+    } catch (e) {
+      setRecDetail((p) => ({ ...p, [name]: { error: true, _open: true } }));
+    } finally {
+      setRecDetailLoading(null);
     }
   }
 
@@ -382,39 +402,80 @@ function App() {
                 {error}
               </div>
             )}
-            {entries.map((e) => (
-              <div key={e.id} style={{ background: C.panel, border: `1px solid ${C.line}`,
-                borderRadius: 14, padding: 14, marginBottom: 10, display: "flex", gap: 12 }}>
-                <ScoreRing value={e.myScore ?? e.predictedScore} size={54} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: "50%",
-                      background: e.kind === "whisky" ? C.whisky : C.wine }} />
-                    <span style={{ fontSize: 10, color: C.sub, letterSpacing: 1 }}>
-                      {e.myScore != null ? "내 점수" : "예측"} · {e.date}
-                    </span>
-                  </div>
-                  <div style={{ fontFamily: "Georgia, serif", fontSize: 16, margin: "3px 0",
-                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {e.name}
-                  </div>
-                  <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.4 }}>{e.resembles}</div>
-                  {e.myScore == null && (
-                    <div style={{ marginTop: 8, display: "flex", gap: 5, flexWrap: "wrap" }}>
-                      {[70, 80, 85, 90, 95].map((s) => (
-                        <button key={s} onClick={() => setScore(e.id, s)}
-                          style={{ padding: "5px 10px", fontSize: 12, background: C.panel2,
-                            color: C.text, border: `1px solid ${C.line}`, borderRadius: 6,
-                            cursor: "pointer" }}>{s}</button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <button onClick={() => removeEntry(e.id)}
-                  style={{ background: "none", border: "none", color: C.line, fontSize: 18,
-                    cursor: "pointer", alignSelf: "flex-start" }}>×</button>
+            {entries.length > 0 && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                {[["all", "전체"], ["wine", "와인"], ["whisky", "위스키"]].map(([k, label]) => (
+                  <button key={k} onClick={() => setKindFilter(k)}
+                    style={{ flex: 1, padding: "8px 0", fontSize: 13,
+                      background: kindFilter === k ? C.gold : C.panel,
+                      color: kindFilter === k ? "#1B160C" : C.sub,
+                      border: `1px solid ${kindFilter === k ? C.gold : C.line}`,
+                      borderRadius: 8, cursor: "pointer", fontWeight: kindFilter === k ? 700 : 400 }}>
+                    {label}
+                  </button>
+                ))}
               </div>
-            ))}
+            )}
+            {entries
+              .filter((e) => kindFilter === "all" || e.kind === kindFilter)
+              .map((e) => {
+              const open = expandedId === e.id;
+              return (
+              <div key={e.id} style={{ background: C.panel, border: `1px solid ${open ? C.goldDim : C.line}`,
+                borderRadius: 14, padding: 14, marginBottom: 10 }}>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <ScoreRing value={e.myScore ?? e.predictedScore} size={54} />
+                  <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
+                    onClick={() => setExpandedId(open ? null : e.id)}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 7, height: 7, borderRadius: "50%",
+                        background: e.kind === "whisky" ? C.whisky : C.wine }} />
+                      <span style={{ fontSize: 10, color: C.sub, letterSpacing: 1 }}>
+                        {e.kind === "whisky" ? "WHISKY" : "WINE"} · {e.myScore != null ? "내 점수" : "예측"} · {e.date}
+                      </span>
+                    </div>
+                    <div style={{ fontFamily: "Georgia, serif", fontSize: 16, margin: "3px 0",
+                      whiteSpace: open ? "normal" : "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {e.name}
+                    </div>
+                    <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.4 }}>{e.resembles}</div>
+                  </div>
+                  <button onClick={() => removeEntry(e.id)}
+                    style={{ background: "none", border: "none", color: C.line, fontSize: 18,
+                      cursor: "pointer", alignSelf: "flex-start" }}>×</button>
+                </div>
+
+                {/* 펼침 상세 */}
+                {open && (
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.line}`,
+                    fontSize: 13, lineHeight: 1.6 }}>
+                    {e.reason && (
+                      <div style={{ marginBottom: 8 }}>
+                        <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>분석 근거</span>
+                        <div style={{ color: C.text, marginTop: 2 }}>{e.reason}</div>
+                      </div>
+                    )}
+                    <div style={{ display: "flex", gap: 16, color: C.sub, fontSize: 12 }}>
+                      {e.predictedScore != null && <span>예측 {e.predictedScore}</span>}
+                      {e.myScore != null && <span style={{ color: C.gold }}>내 점수 {e.myScore}</span>}
+                    </div>
+                  </div>
+                )}
+
+                {/* 미시음 점수 입력 */}
+                {e.myScore == null && (
+                  <div style={{ marginTop: 10, display: "flex", gap: 5, flexWrap: "wrap" }}>
+                    {[70, 80, 85, 90, 95].map((s) => (
+                      <button key={s} onClick={() => setScore(e.id, s)}
+                        style={{ padding: "5px 10px", fontSize: 12, background: C.panel2,
+                          color: C.text, border: `1px solid ${C.line}`, borderRadius: 6,
+                          cursor: "pointer" }}>{s}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              );
+            })}
           </section>
         )}
 
@@ -429,23 +490,60 @@ function App() {
             {recs && recs.length === 0 && (
               <div style={{ color: C.sub, textAlign: "center" }}>추천을 불러오지 못했어요.</div>
             )}
-            {recs && recs.map((r, i) => (
-              <div key={i} style={{ background: C.panel, border: `1px solid ${C.line}`,
+            {recs && recs.map((r, i) => {
+              const d = recDetail[r.name];
+              const loading = recDetailLoading === r.name;
+              const open = d && d._open;
+              return (
+              <div key={i} style={{ background: C.panel,
+                border: `1px solid ${open ? C.goldDim : C.line}`,
                 borderRadius: 14, padding: 16, marginBottom: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ width: 7, height: 7, borderRadius: "50%",
-                    background: r.kind === "whisky" ? C.whisky : C.wine }} />
-                  <span style={{ fontSize: 10, color: C.sub, letterSpacing: 1 }}>
-                    {r.kind === "whisky" ? "WHISKY" : "WINE"}
-                  </span>
+                <div onClick={() => loadRecDetail(r.name, r.kind)} style={{ cursor: "pointer" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 7, height: 7, borderRadius: "50%",
+                        background: r.kind === "whisky" ? C.whisky : C.wine }} />
+                      <span style={{ fontSize: 10, color: C.sub, letterSpacing: 1 }}>
+                        {r.kind === "whisky" ? "WHISKY" : "WINE"}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 11, color: C.goldDim }}>
+                      {loading ? "불러오는 중…" : open ? "접기 ▲" : "자세히 ▼"}
+                    </span>
+                  </div>
+                  <div style={{ fontFamily: "Georgia, serif", fontSize: 17, margin: "4px 0" }}>
+                    {r.name}
+                  </div>
+                  <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{r.why}</div>
+                  <div style={{ fontSize: 12, color: C.goldDim, marginTop: 6 }}>{r.est}</div>
                 </div>
-                <div style={{ fontFamily: "Georgia, serif", fontSize: 17, margin: "4px 0" }}>
-                  {r.name}
-                </div>
-                <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{r.why}</div>
-                <div style={{ fontSize: 12, color: C.goldDim, marginTop: 6 }}>{r.est}</div>
+
+                {open && d && !d.error && (
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.line}`,
+                    fontSize: 13, lineHeight: 1.6 }}>
+                    {d.profile && (<div style={{ marginBottom: 8 }}>
+                      <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>프로파일</span>
+                      <div style={{ color: C.text, marginTop: 2 }}>{d.profile}</div></div>)}
+                    {d.forYou && (<div style={{ marginBottom: 8 }}>
+                      <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>당신에게</span>
+                      <div style={{ color: C.text, marginTop: 2 }}>{d.forYou}</div></div>)}
+                    {d.pairing && (<div style={{ marginBottom: 8 }}>
+                      <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>페어링</span>
+                      <div style={{ color: C.text, marginTop: 2 }}>{d.pairing}</div></div>)}
+                    {d.serving && (<div style={{ marginBottom: 8 }}>
+                      <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>서빙 팁</span>
+                      <div style={{ color: C.text, marginTop: 2 }}>{d.serving}</div></div>)}
+                    {d.est && <div style={{ color: C.goldDim, fontSize: 12 }}>{d.est}</div>}
+                  </div>
+                )}
+                {open && d && d.error && (
+                  <div style={{ marginTop: 10, fontSize: 12, color: "#D98" }}>
+                    상세를 불러오지 못했어요. 다시 탭해 주세요.
+                  </div>
+                )}
               </div>
-            ))}
+              );
+            })}
           </section>
         )}
       </main>
