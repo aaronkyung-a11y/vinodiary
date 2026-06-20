@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Vino·Diary</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍷</text></svg>" />
+<style>
+  html,body{margin:0;padding:0;background:#13110E;color:#EAE3D6;}
+  *{-webkit-tap-highlight-color:transparent;box-sizing:border-box;}
+  #err{display:none;padding:20px;font-family:monospace;font-size:13px;color:#E8A;white-space:pre-wrap;line-height:1.5;}
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<pre id="err"></pre>
+<script>
+  window.addEventListener('error', function(e){
+    var el=document.getElementById('err'); if(!el)return;
+    el.style.display='block';
+    el.textContent='에러: '+(e.message||e.error)+'\n'+(e.filename||'')+':'+(e.lineno||'');
+  });
+</script>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef } = React;
+
+// ============================================================
+// VINO·DIARY — 와인·위스키 취향 다이어리
+// v0.2  (GitHub Pages + Google Sheets via Apps Script)
+//
+// 데이터/AI는 모두 Apps Script Web App 경유.
+// 앱 첫 실행 시 API URL을 입력받아 localStorage에 저장(설정만 로컬).
+// 시음 기록 자체는 Google Sheet에 저장 → 기기 간 동기화됨.
+// ============================================================
+
+const API_KEY_LS = "vinodiary:apiUrl";
+
+// ---------- API 레이어 ----------
+const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbzW91cg-naS0BkDikV48ac2x7-LBw9lNNS-Ar2TBJx54Gj0FvbwE_4Aw34CsLwmIbBKSw/exec";
+let _memUrl = "";
+function getApiUrl() {
+  try { return localStorage.getItem(API_KEY_LS) || _memUrl || DEFAULT_API_URL; }
+  catch (e) { return _memUrl || DEFAULT_API_URL; }
+}
+function setApiUrl(v) {
+  _memUrl = v;
+  try { localStorage.setItem(API_KEY_LS, v); } catch (e) {}
+}
+async function api(payload) {
+  const url = getApiUrl();
+  if (!url) throw new Error("API URL이 설정되지 않았습니다.");
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" }, // CORS 프리플라이트 회피
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+async function apiList() {
+  const url = getApiUrl();
+  const res = await fetch(url + "?action=list");
+  return res.json();
+}
+
+// ---------- UI 토큰 ----------
+const C = {
+  bg: "#13110E", panel: "#1C1916", panel2: "#24201B", line: "#3A332A",
+  gold: "#C9A24B", goldDim: "#8C7637", text: "#EAE3D6", sub: "#9A9081",
+  wine: "#7C2A3A", whisky: "#A6612A",
+};
+
+function ScoreRing({ value, size = 64 }) {
+  const r = size / 2 - 5;
+  const circ = 2 * Math.PI * r;
+  const pct = Math.max(0, Math.min(100, value || 0)) / 100;
+  return (
+    <svg width={size} height={size} style={{ flexShrink: 0 }}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={C.line} strokeWidth="4" />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={C.gold} strokeWidth="4"
+        strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)} strokeLinecap="round"
+        transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+      <text x="50%" y="52%" textAnchor="middle" dominantBaseline="middle"
+        fill={C.text} fontSize={size * 0.28} fontWeight="600" fontFamily="Georgia, serif">
+        {value ?? "–"}
+      </text>
+    </svg>
+  );
+}
+
+function App() {
+  const [ready, setReady] = useState(!!getApiUrl());
+  const [urlInput, setUrlInput] = useState(getApiUrl());
+  const [tab, setTab] = useState("add");
+  const [entries, setEntries] = useState([]);
+  const [text, setText] = useState("");
+  const [imageData, setImageData] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+  const [recs, setRecs] = useState(null);
+  const [recLoading, setRecLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const fileRef = useRef(null);
+
+  useEffect(() => {
+    if (ready) refresh();
+  }, [ready]);
+
+  async function refresh() {
+    setSyncing(true);
+    try {
+      const r = await apiList();
+      setEntries(r.entries || []);
+    } catch (e) {
+      setError("기록을 불러오지 못했어요. API URL을 확인하세요.");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  function saveUrl() {
+    if (!urlInput.startsWith("https://")) {
+      setError("올바른 Web App URL을 입력하세요.");
+      return;
+    }
+    setApiUrl(urlInput.trim());
+    setError(null);
+    setReady(true);
+  }
+
+  function onPickImage(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImageData(reader.result.split(",")[1]);
+      setImagePreview(reader.result);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function onAnalyze() {
+    if (!text && !imageData) {
+      setError("사진을 올리거나 술에 대해 설명해 주세요.");
+      return;
+    }
+    setError(null);
+    setAnalyzing(true);
+    setResult(null);
+    try {
+      const r = await api({ action: "analyze", text, imageData });
+      if (r.error) throw new Error(r.error);
+      setResult(r);
+    } catch (e) {
+      setError("분석에 실패했어요. 다시 시도해 주세요.");
+      console.error(e);
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
+  async function saveResult(myScore) {
+    const entry = {
+      id: Date.now(),
+      date: new Date().toISOString().slice(0, 10),
+      name: result.name,
+      kind: result.kind,
+      resembles: result.resembles,
+      predictedScore: result.predictedScore,
+      reason: result.reason,
+      myScore: myScore ?? null,
+      image: "", // 시트 용량 보호: 이미지는 저장 안 함(원하면 v0.3에서 Drive 연동)
+    };
+    await api({ action: "save", entry });
+    setResult(null); setText(""); setImageData(null); setImagePreview(null);
+    setTab("cellar");
+    refresh();
+  }
+
+  async function setScore(id, score) {
+    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, myScore: score } : e)));
+    await api({ action: "setScore", id, myScore: score });
+  }
+
+  async function removeEntry(id) {
+    setEntries((prev) => prev.filter((e) => e.id !== id));
+    await api({ action: "delete", id });
+  }
+
+  async function loadRecs() {
+    setRecLoading(true); setRecs(null);
+    try {
+      const r = await api({ action: "recommend" });
+      setRecs(Array.isArray(r) ? r : []);
+    } catch (e) {
+      setRecs([]);
+    } finally {
+      setRecLoading(false);
+    }
+  }
+
+  // ---------- 설정 화면 ----------
+  if (!ready) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.bg, color: C.text,
+        fontFamily: "system-ui, sans-serif", display: "flex", alignItems: "center",
+        justifyContent: "center", padding: 24 }}>
+        <div style={{ maxWidth: 420, width: "100%" }}>
+          <div style={{ fontSize: 11, letterSpacing: 4, color: C.goldDim, fontWeight: 600 }}>
+            TASTE JOURNAL
+          </div>
+          <h1 style={{ fontFamily: "Georgia, serif", fontWeight: 500, fontSize: 30,
+            margin: "4px 0 18px" }}>
+            Vino<span style={{ color: C.gold }}>·</span>Diary
+          </h1>
+          <p style={{ color: C.sub, fontSize: 14, lineHeight: 1.6, marginBottom: 14 }}>
+            처음이시군요. Apps Script로 배포한 <b style={{ color: C.text }}>Web App URL</b>을
+            입력하면 기록이 Google Sheet에 저장돼 기기 간 동기화됩니다.
+          </p>
+          <input value={urlInput} onChange={(e) => setUrlInput(e.target.value)}
+            placeholder="https://script.google.com/macros/s/…/exec"
+            style={{ width: "100%", boxSizing: "border-box", background: C.panel,
+              border: `1px solid ${C.line}`, borderRadius: 10, color: C.text, padding: 12,
+              fontSize: 13, marginBottom: 12 }} />
+          <button onClick={saveUrl} style={{ width: "100%", padding: 14, background: C.gold,
+            color: "#1B160C", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15,
+            cursor: "pointer" }}>
+            연결하기
+          </button>
+          {error && <div style={{ color: "#D98", marginTop: 10, fontSize: 13 }}>{error}</div>}
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- 메인 ----------
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, color: C.text,
+      fontFamily: "system-ui, sans-serif", paddingBottom: 80 }}>
+      <header style={{ padding: "22px 20px 14px", borderBottom: `1px solid ${C.line}`,
+        display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+        <div>
+          <div style={{ fontSize: 11, letterSpacing: 4, color: C.goldDim, fontWeight: 600 }}>
+            TASTE JOURNAL
+          </div>
+          <h1 style={{ margin: "4px 0 0", fontFamily: "Georgia, serif", fontWeight: 500,
+            fontSize: 28, letterSpacing: 1 }}>
+            Vino<span style={{ color: C.gold }}>·</span>Diary
+          </h1>
+        </div>
+        <button onClick={refresh} style={{ background: "none", border: `1px solid ${C.line}`,
+          color: syncing ? C.gold : C.sub, borderRadius: 8, padding: "6px 10px", fontSize: 12,
+          cursor: "pointer" }}>
+          {syncing ? "동기화…" : "↻ 새로고침"}
+        </button>
+      </header>
+
+      <main style={{ padding: "18px 16px", maxWidth: 560, margin: "0 auto" }}>
+        {tab === "add" && (
+          <section>
+            <div onClick={() => fileRef.current?.click()}
+              style={{ border: `1px dashed ${C.line}`, borderRadius: 14,
+                padding: imagePreview ? 8 : 28, textAlign: "center", cursor: "pointer",
+                background: C.panel, marginBottom: 14 }}>
+              {imagePreview ? (
+                <img src={imagePreview} alt="" style={{ maxHeight: 260, borderRadius: 8 }} />
+              ) : (
+                <div style={{ color: C.sub }}>
+                  <div style={{ fontSize: 30, marginBottom: 6 }}>📷</div>
+                  <div style={{ fontSize: 14 }}>라벨 사진 올리기</div>
+                </div>
+              )}
+              <input ref={fileRef} type="file" accept="image/*" capture="environment"
+                onChange={onPickImage} style={{ display: "none" }} />
+            </div>
+
+            <textarea value={text} onChange={(e) => setText(e.target.value)}
+              placeholder="또는 술에 대해 이야기해 주세요. 예: 에트나의 카리칸테 화이트, 짠 미네랄에 산도 높음"
+              rows={3} style={{ width: "100%", boxSizing: "border-box", background: C.panel,
+                border: `1px solid ${C.line}`, borderRadius: 12, color: C.text, padding: 12,
+                fontSize: 14, resize: "vertical", marginBottom: 12 }} />
+
+            <button onClick={onAnalyze} disabled={analyzing}
+              style={{ width: "100%", padding: 14, background: C.gold, color: "#1B160C",
+                border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
+                cursor: "pointer", opacity: analyzing ? 0.6 : 1 }}>
+              {analyzing ? "분석 중…" : "내 취향으로 분석하기"}
+            </button>
+
+            {error && <div style={{ color: "#D98", marginTop: 12, fontSize: 13 }}>{error}</div>}
+
+            {result && (
+              <div style={{ marginTop: 18, background: C.panel, border: `1px solid ${C.line}`,
+                borderRadius: 16, padding: 18 }}>
+                <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                  <ScoreRing value={result.predictedScore} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1 }}>
+                      {result.kind === "whisky" ? "WHISKY" : "WINE"} · 예측 선호도
+                    </div>
+                    <div style={{ fontFamily: "Georgia, serif", fontSize: 19, marginTop: 2 }}>
+                      {result.name}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ marginTop: 14, fontSize: 13, color: C.sub, lineHeight: 1.5 }}>
+                  <b style={{ color: C.gold }}>닮은 것</b> · {result.resembles}
+                </div>
+                <div style={{ marginTop: 8, fontSize: 13, color: C.text, lineHeight: 1.6 }}>
+                  {result.reason}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 11, color: C.sub }}>
+                  신뢰도: {result.confidence} · 예측치는 추정값입니다
+                </div>
+                <div style={{ marginTop: 16, borderTop: `1px solid ${C.line}`, paddingTop: 14 }}>
+                  <div style={{ fontSize: 12, color: C.sub, marginBottom: 8 }}>
+                    이미 마셔봤다면 실제 점수를 입력하세요
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {[60, 70, 80, 85, 90, 95].map((s) => (
+                      <button key={s} onClick={() => saveResult(s)}
+                        style={{ flex: "1 0 28%", padding: "10px 0", background: C.panel2,
+                          color: C.text, border: `1px solid ${C.line}`, borderRadius: 8,
+                          fontSize: 14, cursor: "pointer" }}>{s}</button>
+                    ))}
+                  </div>
+                  <button onClick={() => saveResult(null)}
+                    style={{ width: "100%", marginTop: 8, padding: 11, background: "transparent",
+                      color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 8,
+                      fontSize: 13, cursor: "pointer" }}>
+                    아직 안 마셔봄 — 예측치로 저장
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {tab === "cellar" && (
+          <section>
+            {entries.length === 0 && (
+              <div style={{ textAlign: "center", color: C.sub, padding: "60px 20px" }}>
+                아직 기록이 없습니다.<br />첫 술을 분석해 보세요.
+              </div>
+            )}
+            {entries.map((e) => (
+              <div key={e.id} style={{ background: C.panel, border: `1px solid ${C.line}`,
+                borderRadius: 14, padding: 14, marginBottom: 10, display: "flex", gap: 12 }}>
+                <ScoreRing value={e.myScore ?? e.predictedScore} size={54} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: "50%",
+                      background: e.kind === "whisky" ? C.whisky : C.wine }} />
+                    <span style={{ fontSize: 10, color: C.sub, letterSpacing: 1 }}>
+                      {e.myScore != null ? "내 점수" : "예측"} · {e.date}
+                    </span>
+                  </div>
+                  <div style={{ fontFamily: "Georgia, serif", fontSize: 16, margin: "3px 0",
+                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {e.name}
+                  </div>
+                  <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.4 }}>{e.resembles}</div>
+                  {e.myScore == null && (
+                    <div style={{ marginTop: 8, display: "flex", gap: 5, flexWrap: "wrap" }}>
+                      {[70, 80, 85, 90, 95].map((s) => (
+                        <button key={s} onClick={() => setScore(e.id, s)}
+                          style={{ padding: "5px 10px", fontSize: 12, background: C.panel2,
+                            color: C.text, border: `1px solid ${C.line}`, borderRadius: 6,
+                            cursor: "pointer" }}>{s}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => removeEntry(e.id)}
+                  style={{ background: "none", border: "none", color: C.line, fontSize: 18,
+                    cursor: "pointer", alignSelf: "flex-start" }}>×</button>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {tab === "recommend" && (
+          <section>
+            <button onClick={loadRecs} disabled={recLoading}
+              style={{ width: "100%", padding: 14, background: C.gold, color: "#1B160C",
+                border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
+                cursor: "pointer", opacity: recLoading ? 0.6 : 1, marginBottom: 16 }}>
+              {recLoading ? "고르는 중…" : "내 취향과 비슷한 술 추천받기"}
+            </button>
+            {recs && recs.length === 0 && (
+              <div style={{ color: C.sub, textAlign: "center" }}>추천을 불러오지 못했어요.</div>
+            )}
+            {recs && recs.map((r, i) => (
+              <div key={i} style={{ background: C.panel, border: `1px solid ${C.line}`,
+                borderRadius: 14, padding: 16, marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%",
+                    background: r.kind === "whisky" ? C.whisky : C.wine }} />
+                  <span style={{ fontSize: 10, color: C.sub, letterSpacing: 1 }}>
+                    {r.kind === "whisky" ? "WHISKY" : "WINE"}
+                  </span>
+                </div>
+                <div style={{ fontFamily: "Georgia, serif", fontSize: 17, margin: "4px 0" }}>
+                  {r.name}
+                </div>
+                <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{r.why}</div>
+                <div style={{ fontSize: 12, color: C.goldDim, marginTop: 6 }}>{r.est}</div>
+              </div>
+            ))}
+          </section>
+        )}
+      </main>
+
+      <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.panel,
+        borderTop: `1px solid ${C.line}`, display: "flex", maxWidth: 560, margin: "0 auto" }}>
+        {[["add", "분석", "✦"], ["cellar", "셀러", "▤"], ["recommend", "추천", "✧"]].map(
+          ([id, label, icon]) => (
+            <button key={id} onClick={() => setTab(id)}
+              style={{ flex: 1, padding: "14px 0", background: "none", border: "none",
+                color: tab === id ? C.gold : C.sub, fontSize: 12, cursor: "pointer",
+                display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
+              <span style={{ fontSize: 16 }}>{icon}</span>
+              {label}
+            </button>
+          )
+        )}
+      </nav>
+    </div>
+  );
+}
+
+
+try {
+  const root = ReactDOM.createRoot(document.getElementById("root"));
+  root.render(<App />);
+} catch (e) {
+  var el=document.getElementById('err'); el.style.display='block';
+  el.textContent='렌더 에러: '+e.message;
+}
+</script>
+</body>
+</html>
