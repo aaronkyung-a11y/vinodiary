@@ -203,6 +203,24 @@ function App() {
     }
   }
 
+  const [merging, setMerging] = useState(false);
+  async function mergeAll() {
+    setMerging(true);
+    try {
+      const r = await api({ action: "mergeAll" });
+      await refresh();
+      if (r && typeof r.removed === "number") {
+        // 간단 피드백
+        setError(r.removed > 0 ? `중복 ${r.removed}건을 합쳤어요.` : "합칠 중복이 없어요.");
+        setTimeout(() => setError(null), 2500);
+      }
+    } catch (e) {
+      setError("합치기에 실패했어요.");
+    } finally {
+      setMerging(false);
+    }
+  }
+
   // ---------- 설정 화면 ----------
   if (!ready) {
     return (
@@ -345,6 +363,23 @@ function App() {
             {entries.length === 0 && (
               <div style={{ textAlign: "center", color: C.sub, padding: "60px 20px" }}>
                 아직 기록이 없습니다.<br />첫 술을 분석해 보세요.
+              </div>
+            )}
+            {(() => {
+              const names = entries.map((e) => (e.name || "").toLowerCase().replace(/\s+/g, ""));
+              const hasDup = names.some((n, i) => n && names.indexOf(n) !== i);
+              return hasDup ? (
+                <button onClick={mergeAll} disabled={merging}
+                  style={{ width: "100%", padding: "11px", marginBottom: 12, background: "transparent",
+                    color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 10, fontSize: 13,
+                    cursor: "pointer", opacity: merging ? 0.6 : 1 }}>
+                  {merging ? "합치는 중…" : "⊟ 같은 술 중복 합치기"}
+                </button>
+              ) : null;
+            })()}
+            {error && tab === "cellar" && (
+              <div style={{ color: C.gold, fontSize: 13, marginBottom: 10, textAlign: "center" }}>
+                {error}
               </div>
             )}
             {entries.map((e) => (
