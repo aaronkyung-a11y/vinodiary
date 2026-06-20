@@ -2,9 +2,16 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 <title>Vino·Diary</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍷</text></svg>" />
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#13110E" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Vino·Diary" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="icon" type="image/png" href="icon-192.png" />
 <style>
   html,body{margin:0;padding:0;background:#13110E;color:#EAE3D6;}
   *{-webkit-tap-highlight-color:transparent;box-sizing:border-box;}
@@ -24,6 +31,12 @@
     el.style.display='block';
     el.textContent='에러: '+(e.message||e.error)+'\n'+(e.filename||'')+':'+(e.lineno||'');
   });
+  // 서비스워커 등록 (PWA)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('sw.js').catch(function(){});
+    });
+  }
 </script>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef } = React;
@@ -38,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 // ============================================================
 
 const API_KEY_LS = "vinodiary:apiUrl";
-const APP_VERSION = "v0.20";
+const APP_VERSION = "v0.22";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 function kstNow() {
@@ -494,20 +507,29 @@ function App() {
           name: e.name, kind: e.kind, why: e.resembles || "", fromCellar: true,
         }));
       }
-      // 셀러밖(AI 생성)
+      // 이름 중복 제거 헬퍼
+      const dedupe = (arr) => {
+        const seen = new Set();
+        return arr.filter((p) => { const k = (p.name || "").toLowerCase(); if (!k || seen.has(k)) return false; seen.add(k); return true; });
+      };
+      pool = dedupe(pool);
+
+      // 셀러밖(AI 생성) — 목표 수를 채울 때까지 최대 2번 시도
       if (wcSource === "outside" || wcSource === "mix") {
-        const need = wcSource === "outside" ? wcSize : Math.max(0, wcSize - pool.length);
-        if (need > 0) {
+        if (wcSource === "outside") pool = []; // 셀러밖만이면 셀러 제외
+        let attempts = 0;
+        while (pool.length < wcSize && attempts < 2) {
+          const need = wcSize - pool.length;
           const exclude = pool.map((p) => p.name);
-          const gen = await api({ action: "worldcupCandidates", category: wcCategory, count: need + 2, exclude });
-          if (Array.isArray(gen)) {
+          // 넉넉히 요청(필요분 + 여유 4), AI가 적게 줄 것 대비
+          const gen = await api({ action: "worldcupCandidates", category: wcCategory, count: need + 4, exclude });
+          if (Array.isArray(gen) && gen.length) {
             gen.forEach((g) => pool.push({ name: g.name, kind: g.kind, why: g.why || "", fromCellar: false }));
-          }
+            pool = dedupe(pool);
+          } else break;
+          attempts++;
         }
       }
-      // 이름 중복 제거
-      const seen = new Set();
-      pool = pool.filter((p) => { const k = p.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
 
       if (pool.length < 2) {
         setError("후보가 부족해요. '셀러밖 포함' 또는 '혼합'을 선택해 보세요.");
@@ -515,10 +537,14 @@ function App() {
         setWcLoading(false);
         return;
       }
-      // 크기에 맞춰 자르기(부족하면 가능한 만큼, 2의 거듭제곱으로)
+      // 목표 크기로. 부족하면 가능한 2의 거듭제곱으로 축소하고 안내.
       let size = wcSize;
       while (size > pool.length) size = size / 2;
       if (size < 2) size = 2;
+      if (size < wcSize) {
+        setError(`후보가 ${pool.length}개라 ${size}강으로 진행해요.`);
+        setTimeout(() => setError(null), 2800);
+      }
       const round = shuffle(pool).slice(0, size);
       setWcRound(round);
       setWcPair(0);
@@ -1046,14 +1072,23 @@ function App() {
               <div key={e.id} style={{ background: C.panel, border: `1px solid ${open ? C.goldDim : C.line}`,
                 borderRadius: 14, padding: 14, marginBottom: 10 }}>
                 <div style={{ display: "flex", gap: 12 }}>
-                  <ScoreRing value={e.myScore ?? e.predictedScore} size={54} />
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center",
+                    flexShrink: 0, gap: 3 }}>
+                    <ScoreRing value={e.myScore ?? e.predictedScore} size={54} />
+                    {(e.myScore != null || e.predictedScore != null) && (
+                      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
+                        color: e.myScore != null ? C.gold : C.sub }}>
+                        {e.myScore != null ? "내 점수" : "예측"}
+                      </span>
+                    )}
+                  </div>
                   <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
                     onClick={() => setExpandedId(open ? null : e.id)}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span style={{ width: 7, height: 7, borderRadius: "50%",
                         background: e.kind === "whisky" ? C.whisky : C.wine }} />
                       <span style={{ fontSize: 10, color: C.sub, letterSpacing: 1 }}>
-                        {e.kind === "whisky" ? "WHISKY" : "WINE"} · {isWish ? "위시리스트" : (e.myScore != null ? "내 점수" : "예측")} · {e.date}
+                        {e.kind === "whisky" ? "WHISKY" : "WINE"}{isWish ? " · 위시리스트" : ""} · {e.date}
                       </span>
                     </div>
                     <div style={{ fontFamily: "Georgia, serif", fontSize: 16, margin: "3px 0",
