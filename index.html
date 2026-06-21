@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.32";
+const APP_VERSION = "v0.34";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -203,6 +203,8 @@ function App() {
   const [recLoading, setRecLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [kindFilter, setKindFilter] = useState("all"); // all | wine | whisky | wishlist
+  const [subFilter, setSubFilter] = useState("all"); // all | champagne | white | red | rose | sweet
+  const [highOnly, setHighOnly] = useState(false); // 85점 이상만
   const [expandedId, setExpandedId] = useState(null);
   const [recDetail, setRecDetail] = useState({});
   const [recDetailLoading, setRecDetailLoading] = useState(null);
@@ -275,6 +277,26 @@ function App() {
   }, [ready, tab]);
 
   // 토스트: 저장 진행/완료/실패를 화면 하단에 잠깐 표시
+  // 셀러 항목을 피드 포스트로 공유
+  async function shareToFeed(e) {
+    const isMe = true; // 셀러 항목은 내 기록 기준으로 공유
+    const wine = {
+      name: e.name, kind: e.kind, axes: e.axes || null,
+      predictedScore: e.predictedScore ?? null,
+      myScore: e.myScore ?? null, author: "me",
+    };
+    const post = {
+      id: Date.now(),
+      author: "me",
+      date: kstNow(),
+      image: e.image || "",
+      text: e.note || (e.myScore != null ? `${e.name} — ${e.myScore}점` : e.name),
+      wine,
+    };
+    await savingApi({ action: "addPost", post }, "피드에 공유했어요");
+    setPosts((prev) => prev ? [post, ...prev] : prev);
+  }
+
   function showToast(msg, kind) {
     setToast({ msg, kind: kind || "done" });
     if (kind !== "loading") setTimeout(() => setToast(null), 1800);
@@ -1876,6 +1898,30 @@ function App() {
                 })}
               </div>
             )}
+            {entries.length > 0 && kindFilter !== "wishlist" && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap",
+                alignItems: "center" }}>
+                {[["all", "전체"], ["champagne", "샴페인"], ["white", "화이트"], ["red", "레드"],
+                  ["rose", "로제"], ["sweet", "스위트"], ["whisky", "위스키"]].map(([k, label]) => {
+                  const sel = subFilter === k;
+                  return (
+                    <button key={k} onClick={() => setSubFilter(k)}
+                      style={{ padding: "4px 10px", fontSize: 11, borderRadius: 12,
+                        background: sel ? C.goldDim : C.panel2, color: sel ? "#fff" : C.sub,
+                        border: `1px solid ${sel ? C.goldDim : C.line}`, cursor: "pointer" }}>
+                      {label}
+                    </button>
+                  );
+                })}
+                <button onClick={() => setHighOnly((v) => !v)}
+                  style={{ padding: "4px 10px", fontSize: 11, borderRadius: 12,
+                    background: highOnly ? C.gold : C.panel2, color: highOnly ? "#1B160C" : C.sub,
+                    border: `1px solid ${highOnly ? C.gold : C.line}`, cursor: "pointer",
+                    marginLeft: "auto", fontWeight: highOnly ? 700 : 400 }}>
+                  ★ 85+
+                </button>
+              </div>
+            )}
             {entries
               .filter((e) => {
                 if (kindFilter === "wishlist") {
@@ -1889,6 +1935,14 @@ function App() {
                   const q = search.trim().toLowerCase();
                   const hay = ((e.name || "") + " " + (e.resembles || "")).toLowerCase();
                   if (!hay.includes(q)) return false;
+                }
+                // subtype 필터(와인 세분류). 위시리스트 탭에선 미적용
+                if (subFilter !== "all" && kindFilter !== "wishlist") {
+                  if (e.subtype !== subFilter) return false;
+                }
+                // 고득점만(내 점수 85+)
+                if (highOnly) {
+                  if (!(e.myScore != null && e.myScore >= 85)) return false;
                 }
                 return true;
               })
@@ -1937,7 +1991,7 @@ function App() {
                       <span style={{ width: 7, height: 7, borderRadius: "50%",
                         background: e.kind === "whisky" ? C.whisky : C.wine }} />
                       <span style={{ fontSize: 10, color: C.sub, letterSpacing: 1 }}>
-                        {e.kind === "whisky" ? "WHISKY" : "WINE"}{isWish ? " · 위시리스트" : ""} · {e.date}
+                        {e.kind === "whisky" ? "WHISKY" : "WINE"}{isWish ? " · 위시리스트" : ""}{e.image ? " · 📷" : ""} · {e.date}
                       </span>
                     </div>
                     <div style={{ fontFamily: "Georgia, serif", fontSize: 16, margin: "3px 0",
@@ -1955,6 +2009,11 @@ function App() {
                 {open && (
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.line}`,
                     fontSize: 13, lineHeight: 1.6 }}>
+                    {e.image && (
+                      <img src={e.image} alt="" style={{ width: "100%", maxHeight: 280,
+                        objectFit: "cover", borderRadius: 10, marginBottom: 10, display: "block" }}
+                        onError={imgFallback} />
+                    )}
                     {e.reason && (
                       <div style={{ marginBottom: 8 }}>
                         <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>분석 근거</span>
@@ -1987,6 +2046,15 @@ function App() {
                           background: "transparent", color: C.gold, border: `1px solid ${C.goldDim}`,
                           borderRadius: 8, cursor: "pointer" }}>
                         {pairingLoading === e.id ? "찾는 중…" : "🍽 페어링 보기"}
+                      </button>
+                    )}
+                    {/* 피드에 공유 (위시리스트 제외) */}
+                    {!isWish && (
+                      <button onClick={() => shareToFeed(e)}
+                        style={{ marginBottom: 10, marginLeft: 6, padding: "6px 12px", fontSize: 12,
+                          background: "transparent", color: C.gold, border: `1px solid ${C.goldDim}`,
+                          borderRadius: 8, cursor: "pointer" }}>
+                        ❖ 피드에 공유
                       </button>
                     )}
                     {/* 평가자별 점수 */}
@@ -2239,7 +2307,7 @@ function App() {
                   color: C.gold, border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 13,
                   cursor: "pointer", opacity: profileLoading ? 0.6 : 1 }}>
                 {profileLoading ? "분석 중…" :
-                  `${recFor === "common" || recFor === "me" ? "내" : recFor + "의"} 취향 패턴 보기`}
+                  `${recFor === "common" || recFor === "me" ? "내" : recFor + "의"} 취향 리포트 보기`}
               </button>
               {profile && profile.enough === false && (
                 <div style={{ marginTop: 8, fontSize: 12, color: C.sub, textAlign: "center" }}>
@@ -2291,6 +2359,51 @@ function App() {
                       )}
                     </div>
                   )}
+                  {/* 데이터 통계 (프론트 계산) */}
+                  {(() => {
+                    const who = recFor === "common" || recFor === "me" ? "me" : recFor;
+                    const isMe = who === "me";
+                    const scoreOf = (e) => isMe ? e.myScore : (e.scores ? e.scores[who] : null);
+                    const rated = entries.filter((e) => e.status !== "wishlist" && scoreOf(e) != null);
+                    if (rated.length < 3) return null;
+                    const scores = rated.map(scoreOf);
+                    const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+                    const max = Math.max(...scores);
+                    const min = Math.min(...scores);
+                    const top = rated.filter((e) => scoreOf(e) === max).slice(0, 3);
+                    const wineN = rated.filter((e) => e.kind === "wine").length;
+                    const whiskyN = rated.filter((e) => e.kind === "whisky").length;
+                    // subtype 분포(와인)
+                    const subCount = {};
+                    rated.filter((e) => e.kind === "wine" && e.subtype).forEach((e) => {
+                      subCount[e.subtype] = (subCount[e.subtype] || 0) + 1;
+                    });
+                    const subLabel = { champagne: "샴페인", white: "화이트", red: "레드", rose: "로제", sweet: "스위트" };
+                    return (
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
+                        <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>숫자로 보는 취향</span>
+                        <div style={{ display: "flex", gap: 8, marginTop: 8, marginBottom: 10 }}>
+                          {[["평가", rated.length], ["평균", avg], ["최고", max], ["최저", min]].map(([l, v], i) => (
+                            <div key={i} style={{ flex: 1, background: C.panel2, borderRadius: 8,
+                              padding: "8px 4px", textAlign: "center" }}>
+                              <div style={{ fontSize: 16, fontWeight: 700, color: C.gold,
+                                fontFamily: "Georgia, serif" }}>{v}</div>
+                              <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>{l}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: 12, color: C.text, marginBottom: 6 }}>
+                          <span style={{ color: C.sub }}>가장 좋아한 술: </span>
+                          {top.map((e) => e.name).join(", ")} ({max}점)
+                        </div>
+                        <div style={{ fontSize: 12, color: C.sub }}>
+                          와인 {wineN} · 위스키 {whiskyN}
+                          {Object.keys(subCount).length > 0 && " — " +
+                            Object.keys(subCount).map((k) => `${subLabel[k] || k} ${subCount[k]}`).join(", ")}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
