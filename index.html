@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.31";
+const APP_VERSION = "v0.32";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -241,6 +241,13 @@ function App() {
   const [postWineScore, setPostWineScore] = useState(null); // 이 술에 줄 점수(셀러 반영)
   const postFileRef = useRef(null);
   const postCameraRef = useRef(null);
+  const [editingPost, setEditingPost] = useState(null); // 편집 중 포스트 id
+  const [editText, setEditText] = useState("");
+  const [editAuthor, setEditAuthor] = useState("me");
+  const [editImageData, setEditImageData] = useState(undefined); // undefined=유지, null=삭제, string=교체
+  const [editImagePreview, setEditImagePreview] = useState(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const editFileRef = useRef(null);
   const [menuResult, setMenuResult] = useState(null);
   const [menuLoading, setMenuLoading] = useState(false);
   const [candidates, setCandidates] = useState(null); // 단일 분석 후보 목록
@@ -448,6 +455,69 @@ function App() {
     clearTimeout(pendingPostDelete.timer);
     setPosts((prev) => [pendingPostDelete.post, ...(prev || [])]);
     setPendingPostDelete(null);
+  }
+
+  // 편집 시작: 현재 값 채우기
+  function startEditPost(p) {
+    setEditingPost(p.id);
+    setEditText(p.text || "");
+    setEditAuthor((p.author === "me" || p.author === "") ? "me" : p.author);
+    setEditImageData(undefined);
+    setEditImagePreview(p.image || null);
+  }
+  function cancelEditPost() {
+    setEditingPost(null); setEditText(""); setEditImageData(undefined); setEditImagePreview(null);
+  }
+  function onPickEditImage(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 1600;
+        let w = img.width, h = img.height;
+        if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+        setEditImageData(dataUrl.split(",")[1]);
+        setEditImagePreview(dataUrl);
+      };
+      img.onerror = () => {
+        setEditImageData(reader.result.split(",")[1]);
+        setEditImagePreview(reader.result);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
+  async function saveEditPost(p) {
+    setEditSaving(true);
+    try {
+      const isMe = editAuthor === "me" || editAuthor === "나";
+      const patch = { id: p.id, author: isMe ? "me" : editAuthor, text: editText.trim() };
+      // 사진: undefined=유지(보내지 않음), null=삭제, string=새 업로드
+      if (editImageData === null) {
+        patch.image = "";
+      } else if (typeof editImageData === "string") {
+        showToast("사진 올리는 중…", "loading");
+        const up = await api({ action: "uploadPhoto", imageData: editImageData });
+        if (up && up.ok && up.url) patch.image = up.url;
+      }
+      await savingApi({ action: "updatePost", post: patch }, "수정됐어요");
+      // 화면 즉시 반영
+      setPosts((prev) => (prev || []).map((x) => x.id === p.id
+        ? { ...x, author: patch.author, text: patch.text,
+            image: patch.hasOwnProperty("image") ? patch.image : x.image }
+        : x));
+      cancelEditPost();
+    } catch (e) {
+      showToast("수정 실패", "error");
+    } finally {
+      setEditSaving(false);
+    }
   }
 
   // 친구 이름 변경(전 기록 반영)
@@ -1338,6 +1408,71 @@ function App() {
                 <React.Fragment>
                   {shown.map((p) => {
                 const who = (p.author === "me" || p.author === "") ? myLabel : p.author;
+                const isEditing = editingPost === p.id;
+                if (isEditing) {
+                  return (
+                    <div key={p.id} style={{ background: C.panel, border: `1px solid ${C.goldDim}`,
+                      borderRadius: 16, padding: 16, marginBottom: 14 }}>
+                      <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 8 }}>
+                        기록 수정
+                      </div>
+                      {/* 작성자 */}
+                      {raters.length > 0 && (
+                        <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                          {[["me", myLabel]].concat(raters.map((n) => [n, n])).map(([k, label]) => {
+                            const sel = editAuthor === k;
+                            return (
+                              <button key={k} onClick={() => setEditAuthor(k)}
+                                style={{ padding: "5px 12px", fontSize: 12, borderRadius: 14,
+                                  background: sel ? C.gold : C.panel2, color: sel ? "#1B160C" : C.sub,
+                                  border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer" }}>{label}</button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {/* 사진 */}
+                      {editImagePreview ? (
+                        <div style={{ position: "relative", marginBottom: 10, textAlign: "center" }}>
+                          <img src={editImagePreview} alt="" style={{ maxHeight: 240, borderRadius: 10,
+                            border: `1px solid ${C.line}` }} onError={imgFallback} />
+                          <button onClick={() => { setEditImageData(null); setEditImagePreview(null); }}
+                            style={{ position: "absolute", top: 8, right: 8, width: 28, height: 28,
+                              borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff",
+                              border: "none", fontSize: 16, cursor: "pointer" }}>×</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => editFileRef.current?.click()}
+                          style={{ width: "100%", padding: "12px 0", background: C.panel2,
+                            border: `1px dashed ${C.line}`, borderRadius: 10, cursor: "pointer",
+                            color: C.sub, marginBottom: 10, fontSize: 13 }}>
+                          🖼️ 사진 추가
+                        </button>
+                      )}
+                      <input ref={editFileRef} type="file" accept="image/*"
+                        onChange={onPickEditImage} style={{ display: "none" }} />
+                      <textarea value={editText} onChange={(e) => setEditText(e.target.value)}
+                        rows={3} style={{ width: "100%", boxSizing: "border-box", background: C.panel2,
+                          border: `1px solid ${C.line}`, borderRadius: 10, color: C.text, padding: 12,
+                          fontSize: 14, resize: "vertical", marginBottom: 10 }} />
+                      {p.wine && (
+                        <div style={{ fontSize: 11, color: C.sub, marginBottom: 10 }}>
+                          연동된 술({p.wine.name})의 점수·그래프는 셀러에서 수정하세요.
+                        </div>
+                      )}
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={cancelEditPost}
+                          style={{ flex: 1, padding: 11, background: "transparent", color: C.sub,
+                            border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>취소</button>
+                        <button onClick={() => saveEditPost(p)} disabled={editSaving}
+                          style={{ flex: 2, padding: 11, background: C.gold, color: "#1B160C", border: "none",
+                            borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer",
+                            opacity: editSaving ? 0.6 : 1 }}>
+                          {editSaving ? "저장 중…" : "저장"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
                 return (
                   <div key={p.id} style={{ background: C.panel, border: `1px solid ${C.line}`,
                     borderRadius: 16, overflow: "hidden", marginBottom: 14 }}>
@@ -1359,10 +1494,15 @@ function App() {
                             <div style={{ fontSize: 10, color: C.sub }}>{p.date}</div>
                           </div>
                         </div>
-                        <button onClick={() => { if (window.confirm("이 기록을 삭제할까요?")) removePost(p.id); }}
-                          title="삭제"
-                          style={{ background: "none", border: "none", color: C.sub, fontSize: 15,
-                            cursor: "pointer" }}>🗑</button>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button onClick={() => startEditPost(p)} title="수정"
+                            style={{ background: "none", border: "none", color: C.sub, fontSize: 14,
+                              cursor: "pointer", padding: "2px 6px" }}>✎</button>
+                          <button onClick={() => { if (window.confirm("이 기록을 삭제할까요?")) removePost(p.id); }}
+                            title="삭제"
+                            style={{ background: "none", border: "none", color: C.sub, fontSize: 15,
+                              cursor: "pointer", padding: "2px 6px" }}>🗑</button>
+                        </div>
                       </div>
                       {p.text && (
                         <div style={{ fontSize: 14, color: C.text, lineHeight: 1.6, marginTop: 10,
