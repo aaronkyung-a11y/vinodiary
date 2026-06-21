@@ -51,17 +51,20 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.30";
+const APP_VERSION = "v0.31";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
+// 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
+function pad2(n) { return String(n).padStart(2, "0"); }
 function kstNow() {
-  const d = new Date(Date.now() + 9 * 60 * 60 * 1000);
-  const iso = d.toISOString(); // ...UTC지만 +9 보정됨
-  return iso.slice(0, 10) + " " + iso.slice(11, 16);
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+         `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
-// KST 날짜만 "YYYY-MM-DD"
+// 로컬 날짜만 "YYYY-MM-DD"
 function kstDate() {
-  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
 // ---------- API 레이어 ----------
@@ -928,7 +931,7 @@ function App() {
   // 위시리스트 항목을 마셔봄 → 평가 + tasted 전환
   async function tasteItem(id, score) {
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, myScore: score, status: "tasted" } : e)));
-    await savingApi({ action: "taste", id, myScore: score }, "점수 저장됨");
+    await savingApi({ action: "taste", id, myScore: score, date: kstNow() }, "점수 저장됨");
   }
 
   const [pendingDelete, setPendingDelete] = useState(null); // {entry, timer}
