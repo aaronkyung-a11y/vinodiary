@@ -50,7 +50,8 @@ const { useState, useEffect, useRef } = React;
 // ============================================================
 
 const API_KEY_LS = "vinodiary:apiUrl";
-const APP_VERSION = "v0.26";
+const NAME_LS = "vinodiary:userName";
+const APP_VERSION = "v0.27";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 function kstNow() {
@@ -217,6 +218,11 @@ function App() {
   const [sortBy, setSortBy] = useState("recent"); // recent | score
   const [analyzeMode, setAnalyzeMode] = useState("single"); // single | menu
   const [analyzeFor, setAnalyzeFor] = useState("me"); // 분석 기준 평가자: me | 친구이름
+  const [userName, setUserName] = useState(() => {
+    try { return localStorage.getItem(NAME_LS) || ""; } catch (e) { return ""; }
+  });
+  const [companions, setCompanions] = useState(""); // 함께한 사람
+  const [note, setNote] = useState(""); // 메모
   const [menuResult, setMenuResult] = useState(null);
   const [menuLoading, setMenuLoading] = useState(false);
   const [candidates, setCandidates] = useState(null); // 단일 분석 후보 목록
@@ -242,6 +248,10 @@ function App() {
   function showToast(msg, kind) {
     setToast({ msg, kind: kind || "done" });
     if (kind !== "loading") setTimeout(() => setToast(null), 1800);
+  }
+  function saveName(name) {
+    setUserName(name);
+    try { localStorage.setItem(NAME_LS, name); } catch (e) {}
   }
   // 저장 계열 API를 토스트와 함께 호출
   async function savingApi(payload, doneMsg) {
@@ -403,6 +413,15 @@ function App() {
 
   async function saveResult(score, status) {
     const isMe = analyzeFor === "me" || analyzeFor === "나";
+    // 사진이 있으면 Drive 업로드 후 URL 확보
+    let imageUrl = "";
+    if (imageData) {
+      showToast("사진 올리는 중…", "loading");
+      try {
+        const up = await api({ action: "uploadPhoto", imageData });
+        if (up && up.ok && up.url) imageUrl = up.url;
+      } catch (e) { /* 사진 실패해도 기록은 저장 */ }
+    }
     const entry = {
       id: Date.now(),
       date: kstNow(),
@@ -413,14 +432,17 @@ function App() {
       reason: result.reason,
       myScore: isMe ? (score ?? null) : null,
       scores: (!isMe && score != null) ? { [analyzeFor]: score } : {},
-      image: "",
+      image: imageUrl,
       status: status || "tasted",
       axes: result.axes || null,
       subtype: result.subtype || "",
+      companions: companions.trim(),
+      note: note.trim(),
     };
     await savingApi({ action: "save", entry }, status === "wishlist" ? "위시리스트에 담음" : "저장됨");
     setResult(null); setText(""); setImageData(null); setImagePreview(null);
-    setTab("cellar");
+    setCompanions(""); setNote("");
+    setTab("feed");
     refresh();
   }
 
@@ -911,6 +933,95 @@ function App() {
       </header>
 
       <main style={{ padding: "18px 16px", maxWidth: 560, margin: "0 auto" }}>
+        {tab === "feed" && (
+          <section>
+            {/* 인사 + 이름 설정 */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 2 }}>MY DIARY</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                <input value={userName} onChange={(e) => saveName(e.target.value)}
+                  placeholder="이름을 입력하세요"
+                  style={{ flex: 1, background: "transparent", border: "none",
+                    borderBottom: `1px solid ${C.line}`, color: C.text, padding: "4px 0",
+                    fontSize: 22, fontFamily: "Georgia, serif" }} />
+                <span style={{ fontSize: 15, color: C.sub }}>의 술 일기</span>
+              </div>
+            </div>
+
+            {(() => {
+              const tasted = entries.filter((e) => e.status !== "wishlist");
+              if (tasted.length === 0) {
+                return (
+                  <div style={{ textAlign: "center", color: C.sub, padding: "50px 20px" }}>
+                    <div style={{ fontSize: 40, marginBottom: 12 }}>📖</div>
+                    <div style={{ fontSize: 14, color: C.text, marginBottom: 6 }}>아직 일기가 비어 있어요</div>
+                    <div style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 20 }}>
+                      술을 분석하고 사진·메모와 함께 저장하면<br />여기에 일기로 쌓여요.
+                    </div>
+                    <button onClick={() => setTab("add")}
+                      style={{ padding: "12px 24px", background: C.gold, color: "#1B160C", border: "none",
+                        borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                      첫 기록 남기기
+                    </button>
+                  </div>
+                );
+              }
+              const sorted = [...tasted].sort((a, b) => Number(b.id) - Number(a.id));
+              return sorted.map((e) => {
+                const myS = e.myScore;
+                const friendScores = e.scores ? Object.keys(e.scores) : [];
+                return (
+                  <div key={e.id} style={{ background: C.panel, border: `1px solid ${C.line}`,
+                    borderRadius: 16, overflow: "hidden", marginBottom: 14 }}>
+                    {e.image ? (
+                      <img src={e.image} alt="" style={{ width: "100%", maxHeight: 320,
+                        objectFit: "cover", display: "block" }}
+                        onError={(ev) => { ev.target.style.display = "none"; }} />
+                    ) : null}
+                    <div style={{ padding: 16 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ width: 7, height: 7, borderRadius: "50%",
+                              background: e.kind === "whisky" ? C.whisky : C.wine }} />
+                            <span style={{ fontSize: 10, color: C.sub, letterSpacing: 1 }}>{e.date}</span>
+                          </div>
+                          <div style={{ fontFamily: "Georgia, serif", fontSize: 18, margin: "4px 0" }}>{e.name}</div>
+                        </div>
+                        {(myS != null) && (
+                          <div style={{ flexShrink: 0, width: 46, height: 46, borderRadius: "50%",
+                            border: `2px solid ${C.gold}`, display: "flex", alignItems: "center",
+                            justifyContent: "center", fontSize: 15, fontWeight: 700, color: C.gold }}>
+                            {myS}
+                          </div>
+                        )}
+                      </div>
+                      {e.companions && (
+                        <div style={{ fontSize: 13, color: C.gold, marginTop: 4 }}>👥 {e.companions}</div>
+                      )}
+                      {e.note && (
+                        <div style={{ fontSize: 13, color: C.text, lineHeight: 1.6, marginTop: 8,
+                          whiteSpace: "pre-wrap" }}>{e.note}</div>
+                      )}
+                      {e.resembles && (
+                        <div style={{ fontSize: 12, color: C.sub, marginTop: 8, lineHeight: 1.5 }}>{e.resembles}</div>
+                      )}
+                      {friendScores.length > 0 && (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+                          {friendScores.map((n) => (
+                            <span key={n} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10,
+                              background: C.panel2, color: C.text }}>{n} {e.scores[n]}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </section>
+        )}
+
         {tab === "add" && (
           <section>
             <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
@@ -1106,18 +1217,22 @@ function App() {
                   </div>
                 )}
                 <div style={{ marginTop: 16, borderTop: `1px solid ${C.line}`, paddingTop: 14 }}>
+                  {/* 함께한 사람 · 메모 */}
+                  <input value={companions} onChange={(e) => setCompanions(e.target.value)}
+                    placeholder="누구와 함께? (예: 유진, 동생)"
+                    style={{ width: "100%", boxSizing: "border-box", background: C.panel2,
+                      border: `1px solid ${C.line}`, borderRadius: 8, color: C.text,
+                      padding: "9px 12px", fontSize: 13, marginBottom: 8 }} />
+                  <textarea value={note} onChange={(e) => setNote(e.target.value)}
+                    placeholder="어떻게 마셨는지, 어떤 느낌이었는지 메모"
+                    rows={2} style={{ width: "100%", boxSizing: "border-box", background: C.panel2,
+                      border: `1px solid ${C.line}`, borderRadius: 8, color: C.text,
+                      padding: "9px 12px", fontSize: 13, marginBottom: 12, resize: "vertical" }} />
                   <div style={{ fontSize: 12, color: C.sub, marginBottom: 8 }}>
-                    이미 마셔봤다면 실제 점수를 입력하세요
+                    이미 마셔봤다면 점수를 입력하세요
                   </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {[60, 70, 80, 85, 90, 95].map((s) => (
-                      <button key={s} onClick={() => saveResult(s)}
-                        style={{ flex: "1 0 28%", padding: "10px 0", background: C.panel2,
-                          color: C.text, border: `1px solid ${C.line}`, borderRadius: 8,
-                          fontSize: 14, cursor: "pointer" }}>{s}</button>
-                    ))}
-                  </div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <ScoreInput onSubmit={(s) => saveResult(s)} />
+                  <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                     <button onClick={() => saveResult(null)}
                       style={{ flex: 1, padding: 11, background: "transparent",
                         color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 8,
@@ -1922,7 +2037,7 @@ function App() {
 
       <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.panel,
         borderTop: `1px solid ${C.line}`, display: "flex", maxWidth: 560, margin: "0 auto" }}>
-        {[["add", "분석", "✦"], ["cellar", "셀러", "▤"], ["recommend", "추천", "✧"], ["worldcup", "월드컵", "♛"]].map(
+        {[["feed", "피드", "❖"], ["add", "분석", "✦"], ["cellar", "셀러", "▤"], ["recommend", "추천", "✧"], ["worldcup", "월드컵", "♛"]].map(
           ([id, label, icon]) => (
             <button key={id} onClick={() => setTab(id)}
               style={{ flex: 1, padding: "14px 0", background: "none", border: "none",
