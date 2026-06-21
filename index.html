@@ -31,7 +31,6 @@
     el.style.display='block';
     el.textContent='에러: '+(e.message||e.error)+'\n'+(e.filename||'')+':'+(e.lineno||'');
   });
-  // 서비스워커 등록 (PWA)
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function(){
       navigator.serviceWorker.register('sw.js').catch(function(){});
@@ -51,7 +50,7 @@ const { useState, useEffect, useRef } = React;
 // ============================================================
 
 const API_KEY_LS = "vinodiary:apiUrl";
-const APP_VERSION = "v0.22";
+const APP_VERSION = "v0.26";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 function kstNow() {
@@ -104,6 +103,44 @@ const AXIS_LABELS = {
   texture: "질감", fruit: "과실", complexity: "복합미",
   peat: "피트", sherry: "셰리", spice: "스파이스", oiliness: "오일리", abv: "도수감",
 };
+
+// 점수 입력: 슬라이더 + 직접 입력 + 빠른 버튼. 0~100 임의 점수 가능.
+function ScoreInput({ onSubmit, accent }) {
+  const C2 = { gold: "#C9A24B", goldDim: "#7C6A3A", line: "#3A332A", panel2: "#1F1B15",
+    text: "#EAE3D6", sub: "#9A9081" };
+  const [val, setVal] = React.useState(85);
+  const col = accent || C2.gold;
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <input type="range" min="0" max="100" value={val}
+          onChange={(e) => setVal(Number(e.target.value))}
+          style={{ flex: 1, accentColor: col }} />
+        <input type="number" min="0" max="100" value={val}
+          onChange={(e) => {
+            let v = Number(e.target.value);
+            if (isNaN(v)) v = 0; v = Math.max(0, Math.min(100, v));
+            setVal(v);
+          }}
+          style={{ width: 54, background: C2.panel2, border: `1px solid ${C2.line}`,
+            borderRadius: 8, color: col, padding: "6px 8px", fontSize: 15, fontWeight: 700,
+            textAlign: "center" }} />
+        <button onClick={() => onSubmit(val)}
+          style={{ padding: "8px 14px", background: col, color: "#1B160C", border: "none",
+            borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>입력</button>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+        {[60, 70, 75, 80, 85, 90, 95].map((s) => (
+          <button key={s} onClick={() => setVal(s)}
+            style={{ flex: "1 0 12%", padding: "5px 0", fontSize: 12, background: C2.panel2,
+              color: val === s ? col : C2.sub, border: `1px solid ${val === s ? col : C2.line}`,
+              borderRadius: 6, cursor: "pointer" }}>{s}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AxisBars({ axes }) {
   if (!axes || typeof axes !== "object") return null;
   const keys = Object.keys(axes);
@@ -169,12 +206,17 @@ function App() {
   const [raters, setRaters] = useState([]);    // 등록된 친구 목록
   const [ratingFor, setRatingFor] = useState({}); // {entryId: "친구이름"} 평가자 선택
   const [axesLoading, setAxesLoading] = useState(null);
+  const [pairingLoading, setPairingLoading] = useState(null);
+  const [foodText, setFoodText] = useState("");
+  const [foodResult, setFoodResult] = useState(null);
+  const [foodLoading, setFoodLoading] = useState(false);
   const [profile, setProfile] = useState(null);     // 취향 분석 결과
   const [profileLoading, setProfileLoading] = useState(false);
   const [toast, setToast] = useState(null); // {msg, kind: "loading"|"done"|"error"}
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("recent"); // recent | score
   const [analyzeMode, setAnalyzeMode] = useState("single"); // single | menu
+  const [analyzeFor, setAnalyzeFor] = useState("me"); // 분석 기준 평가자: me | 친구이름
   const [menuResult, setMenuResult] = useState(null);
   const [menuLoading, setMenuLoading] = useState(false);
   const [candidates, setCandidates] = useState(null); // 단일 분석 후보 목록
@@ -307,7 +349,7 @@ function App() {
     setResult(null);
     setCandidates(null);
     try {
-      const r = await api({ action: "analyze", text: name + (kind ? " (" + kind + ")" : "") });
+      const r = await api({ action: "analyze", text: name + (kind ? " (" + kind + ")" : ""), forWhom: analyzeFor });
       if (r.error) throw new Error(r.error);
       setResult(r);
     } catch (e) {
@@ -359,7 +401,8 @@ function App() {
     refresh();
   }
 
-  async function saveResult(myScore, status) {
+  async function saveResult(score, status) {
+    const isMe = analyzeFor === "me" || analyzeFor === "나";
     const entry = {
       id: Date.now(),
       date: kstNow(),
@@ -368,7 +411,8 @@ function App() {
       resembles: result.resembles,
       predictedScore: result.predictedScore,
       reason: result.reason,
-      myScore: myScore ?? null,
+      myScore: isMe ? (score ?? null) : null,
+      scores: (!isMe && score != null) ? { [analyzeFor]: score } : {},
       image: "",
       status: status || "tasted",
       axes: result.axes || null,
@@ -448,6 +492,38 @@ function App() {
       setTimeout(() => setError(null), 2000);
     } finally {
       setAxesLoading(null);
+    }
+  }
+
+  // 셀러 술의 페어링 도출(detail의 pairing). 시트엔 저장 안 하고 화면 상태에만.
+  async function loadPairing(entry) {
+    setPairingLoading(entry.id);
+    try {
+      const d = await api({ action: "detail", name: entry.name, kind: entry.kind });
+      if (d && d.pairing) {
+        setEntries((prev) => prev.map((x) => (x.id === entry.id ? { ...x, pairing: d.pairing } : x)));
+      } else {
+        showToast("페어링을 찾지 못했어요", "error");
+      }
+    } catch (e) {
+      showToast("페어링 도출 실패", "error");
+    } finally {
+      setPairingLoading(null);
+    }
+  }
+
+  async function runFoodPairing() {
+    if (!foodText.trim()) { showToast("음식을 입력해 주세요", "error"); return; }
+    setFoodLoading(true);
+    setFoodResult(null);
+    try {
+      const r = await api({ action: "pairFood", food: foodText.trim() });
+      if (r.error) throw new Error(r.error);
+      setFoodResult(r);
+    } catch (e) {
+      showToast("페어링 추천에 실패했어요", "error");
+    } finally {
+      setFoodLoading(false);
     }
   }
 
@@ -625,9 +701,86 @@ function App() {
     await savingApi({ action: "taste", id, myScore: score }, "점수 저장됨");
   }
 
-  async function removeEntry(id) {
+  const [pendingDelete, setPendingDelete] = useState(null); // {entry, timer}
+  function removeEntry(id) {
+    const target = entries.find((e) => e.id === id);
+    if (!target) return;
+    // 화면에서 즉시 숨기고, 되돌리기 토스트 표시. 일정 시간 뒤 실제 삭제.
     setEntries((prev) => prev.filter((e) => e.id !== id));
-    await api({ action: "delete", id });
+    const timer = setTimeout(() => {
+      api({ action: "delete", id });
+      setPendingDelete(null);
+    }, 5000);
+    setPendingDelete({ entry: target, timer });
+  }
+  function undoDelete() {
+    if (!pendingDelete) return;
+    clearTimeout(pendingDelete.timer);
+    setEntries((prev) => [pendingDelete.entry, ...prev]);
+    setPendingDelete(null);
+  }
+
+  // 백업 내보내기: 현재 기록을 JSON 파일로 다운로드
+  function exportData() {
+    try {
+      const data = { app: "Vino·Diary", version: APP_VERSION, exportedAt: kstNow(), entries };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `vinodiary-backup-${kstDate()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("백업 파일을 내려받았어요", "done");
+    } catch (e) {
+      showToast("내보내기 실패", "error");
+    }
+  }
+
+  const importRef = useRef(null);
+  async function importData(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const txt = await file.text();
+      const data = JSON.parse(txt);
+      const list = Array.isArray(data) ? data : data.entries;
+      if (!Array.isArray(list) || !list.length) {
+        showToast("가져올 기록이 없어요", "error");
+        return;
+      }
+      // 이미 있는 이름은 건너뛰고 새 기록만 추가
+      const have = new Set(entries.map((x) => (x.name || "").toLowerCase()));
+      const fresh = list.filter((x) => x && x.name && !have.has(x.name.toLowerCase()));
+      if (!fresh.length) {
+        showToast("새로 추가할 기록이 없어요", "done");
+        return;
+      }
+      showToast(`${fresh.length}개 가져오는 중…`, "loading");
+      for (const it of fresh) {
+        const entry = {
+          id: Date.now() + Math.floor(Math.random() * 100000),
+          date: it.date || kstNow(),
+          name: it.name, kind: it.kind || "wine",
+          resembles: it.resembles || "",
+          predictedScore: it.predictedScore ?? null,
+          reason: it.reason || "",
+          myScore: it.myScore ?? null,
+          image: "",
+          status: it.status || "tasted",
+          scores: it.scores || {},
+          axes: it.axes || null,
+          subtype: it.subtype || "",
+        };
+        await api({ action: "save", entry });
+      }
+      showToast(`${fresh.length}개 가져왔어요`, "done");
+      refresh();
+    } catch (err) {
+      showToast("가져오기 실패 — 파일을 확인하세요", "error");
+    } finally {
+      if (importRef.current) importRef.current.value = "";
+    }
   }
 
   async function loadRecs() {
@@ -772,6 +925,25 @@ function App() {
                 );
               })}
             </div>
+            {analyzeMode === "single" && (raters.length > 0) && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 6 }}>
+                  누구 취향으로 분석할까요?
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {[["me", "나"]].concat(raters.map((n) => [n, n])).map(([k, label]) => {
+                    const sel = analyzeFor === k;
+                    return (
+                      <button key={k} onClick={() => setAnalyzeFor(k)}
+                        style={{ padding: "6px 14px", fontSize: 13, borderRadius: 16,
+                          background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
+                          border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer",
+                          fontWeight: sel ? 700 : 400 }}>{label}</button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             {imagePreview ? (
               <div style={{ position: "relative", marginBottom: 14, textAlign: "center" }}>
                 <img src={imagePreview} alt="" style={{ maxHeight: 260, borderRadius: 12,
@@ -925,7 +1097,7 @@ function App() {
                   {result.reason}
                 </div>
                 <div style={{ marginTop: 6, fontSize: 11, color: C.sub }}>
-                  신뢰도: {result.confidence} · 예측치는 추정값입니다
+                  신뢰도: {result.confidence} · {(analyzeFor === "me" || analyzeFor === "나") ? "내" : analyzeFor + "의"} 예측 점수(추정)
                 </div>
                 {result.axes && (
                   <div style={{ marginTop: 12 }}>
@@ -968,8 +1140,17 @@ function App() {
         {tab === "cellar" && (
           <section>
             {entries.length === 0 && (
-              <div style={{ textAlign: "center", color: C.sub, padding: "60px 20px" }}>
-                아직 기록이 없습니다.<br />첫 술을 분석해 보세요.
+              <div style={{ textAlign: "center", color: C.sub, padding: "50px 20px" }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>🍷</div>
+                <div style={{ fontSize: 15, color: C.text, marginBottom: 6 }}>아직 기록이 없어요</div>
+                <div style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 20 }}>
+                  마셔봤거나 궁금한 술을 분석해<br />나만의 취향 다이어리를 시작해 보세요.
+                </div>
+                <button onClick={() => setTab("add")}
+                  style={{ padding: "12px 24px", background: C.gold, color: "#1B160C", border: "none",
+                    borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                  첫 술 분석하기
+                </button>
               </div>
             )}
             {(() => {
@@ -989,6 +1170,28 @@ function App() {
                 {error}
               </div>
             )}
+            {/* 요약 통계 */}
+            {entries.length > 0 && (() => {
+              const tasted = entries.filter((e) => e.status !== "wishlist");
+              const wish = entries.filter((e) => e.status === "wishlist").length;
+              const rated = tasted.filter((e) => e.myScore != null);
+              const avg = rated.length ? Math.round(rated.reduce((s, e) => s + e.myScore, 0) / rated.length) : null;
+              const wine = tasted.filter((e) => e.kind === "wine").length;
+              const whisky = tasted.filter((e) => e.kind === "whisky").length;
+              return (
+                <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                  {[["병", tasted.length], ["평균", avg != null ? avg : "—"],
+                    ["와인", wine], ["위스키", whisky], ["위시", wish]].map(([label, val], i) => (
+                    <div key={i} style={{ flex: "1 0 17%", background: C.panel,
+                      border: `1px solid ${C.line}`, borderRadius: 10, padding: "8px 4px",
+                      textAlign: "center" }}>
+                      <div style={{ fontSize: 17, fontWeight: 700, color: C.gold, fontFamily: "Georgia, serif" }}>{val}</div>
+                      <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
             {entries.length > 0 && (
               <div style={{ position: "relative", marginBottom: 10 }}>
                 <input value={search} onChange={(e) => setSearch(e.target.value)}
@@ -1014,6 +1217,9 @@ function App() {
                   <option value="scoreHigh">내 점수 높은순</option>
                   <option value="scoreLow">내 점수 낮은순</option>
                   <option value="predHigh">예측 점수 높은순</option>
+                  {raters.map((n) => (
+                    <option key={n} value={`friend:${n}`}>{n} 점수 높은순</option>
+                  ))}
                 </select>
               </div>
             )}
@@ -1062,7 +1268,15 @@ function App() {
                   case "scoreHigh": return myB - myA || Number(b.id) - Number(a.id);
                   case "scoreLow":  return myA - myB || Number(b.id) - Number(a.id);
                   case "predHigh":  return prB - prA || Number(b.id) - Number(a.id);
-                  default:         return Number(b.id) - Number(a.id);
+                  default:
+                    // friend:이름 → 그 친구 점수 높은순
+                    if (sortBy.startsWith("friend:")) {
+                      const nm = sortBy.slice(7);
+                      const fa = (a.scores && a.scores[nm] != null) ? a.scores[nm] : -1;
+                      const fb = (b.scores && b.scores[nm] != null) ? b.scores[nm] : -1;
+                      return fb - fa || Number(b.id) - Number(a.id);
+                    }
+                    return Number(b.id) - Number(a.id);
                 }
               })
               .map((e) => {
@@ -1126,6 +1340,20 @@ function App() {
                         {axesLoading === e.id ? "분석 중…" : "특성 막대 분석하기"}
                       </button>
                     )}
+                    {/* 페어링 */}
+                    {e.pairing ? (
+                      <div style={{ marginBottom: 10 }}>
+                        <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>🍽 페어링</span>
+                        <div style={{ color: C.text, marginTop: 2, fontSize: 13, lineHeight: 1.5 }}>{e.pairing}</div>
+                      </div>
+                    ) : (
+                      <button onClick={() => loadPairing(e)} disabled={pairingLoading === e.id}
+                        style={{ marginBottom: 10, marginLeft: 6, padding: "6px 12px", fontSize: 12,
+                          background: "transparent", color: C.gold, border: `1px solid ${C.goldDim}`,
+                          borderRadius: 8, cursor: "pointer" }}>
+                        {pairingLoading === e.id ? "찾는 중…" : "🍽 페어링 보기"}
+                      </button>
+                    )}
                     {/* 평가자별 점수 */}
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
                       {e.predictedScore != null ? (
@@ -1171,17 +1399,10 @@ function App() {
                           background: "transparent", color: C.gold, border: `1px dashed ${C.goldDim}`,
                           cursor: "pointer" }}>+ 친구</button>
                       </div>
-                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                        {[70, 80, 85, 90, 95].map((s) => (
-                          <button key={s} onClick={() => {
-                            const who = ratingFor[e.id] || "나";
-                            setRating(e.id, who === "나" ? "me" : who, s);
-                          }}
-                            style={{ flex: "1 0 17%", padding: "7px 0", fontSize: 12, background: C.panel2,
-                              color: C.text, border: `1px solid ${C.line}`, borderRadius: 6,
-                              cursor: "pointer" }}>{s}</button>
-                        ))}
-                      </div>
+                      <ScoreInput onSubmit={(s) => {
+                        const who = ratingFor[e.id] || "나";
+                        setRating(e.id, who === "나" ? "me" : who, s);
+                      }} />
                       <button onClick={() => {
                         const who = ratingFor[e.id] || "나";
                         const raterKey = who === "나" ? "me" : who;
@@ -1217,14 +1438,7 @@ function App() {
                 {isWish && !open && (
                   <div style={{ marginTop: 10 }}>
                     <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 6 }}>마셔봤다면 평가하기 (카드를 펼치면 친구도 평가 가능)</div>
-                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                      {[70, 80, 85, 90, 95].map((s) => (
-                        <button key={s} onClick={() => tasteItem(e.id, s)}
-                          style={{ padding: "5px 12px", fontSize: 12, background: C.panel2,
-                            color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 6,
-                            cursor: "pointer" }}>{s}</button>
-                      ))}
-                    </div>
+                    <ScoreInput onSubmit={(s) => tasteItem(e.id, s)} />
                   </div>
                 )}
               </div>
@@ -1243,11 +1457,89 @@ function App() {
                   "{search}"에 해당하는 술이 없어요.
                 </div>
               )}
+            {/* 데이터 관리 */}
+            {entries.length > 0 && (
+              <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${C.line}` }}>
+                <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 8 }}>
+                  데이터 백업
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={exportData}
+                    style={{ flex: 1, padding: "10px", background: "transparent", color: C.sub,
+                      border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 12, cursor: "pointer" }}>
+                    ↓ 내보내기(JSON)
+                  </button>
+                  <button onClick={() => importRef.current?.click()}
+                    style={{ flex: 1, padding: "10px", background: "transparent", color: C.sub,
+                      border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 12, cursor: "pointer" }}>
+                    ↑ 가져오기
+                  </button>
+                  <input ref={importRef} type="file" accept="application/json,.json"
+                    onChange={importData} style={{ display: "none" }} />
+                </div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 8, lineHeight: 1.5 }}>
+                  내보내기로 기록을 파일로 저장해 두면 안전해요. 가져오기는 중복(같은 이름)을 빼고 추가합니다.
+                </div>
+              </div>
+            )}
           </section>
         )}
 
         {tab === "recommend" && (
           <section>
+            {/* 음식 → 술 페어링 */}
+            <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14,
+              padding: 14, marginBottom: 18 }}>
+              <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 8 }}>
+                🍽 오늘 뭐 먹어요? 어울리는 술을 찾아드려요
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={foodText} onChange={(e) => setFoodText(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && runFoodPairing()}
+                  placeholder="예: 양고기 스테이크, 굴, 떡볶이"
+                  style={{ flex: 1, background: C.panel2, border: `1px solid ${C.line}`,
+                    borderRadius: 8, color: C.text, padding: "10px 12px", fontSize: 14 }} />
+                <button onClick={runFoodPairing} disabled={foodLoading}
+                  style={{ padding: "0 16px", background: C.gold, color: "#1B160C", border: "none",
+                    borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer",
+                    opacity: foodLoading ? 0.6 : 1, whiteSpace: "nowrap" }}>
+                  {foodLoading ? "…" : "찾기"}
+                </button>
+              </div>
+              {foodResult && (
+                <div style={{ marginTop: 12, fontSize: 13, lineHeight: 1.6 }}>
+                  {foodResult.fromCellar && foodResult.fromCellar.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>내 셀러에서</span>
+                      {foodResult.fromCellar.map((p, i) => (
+                        <div key={i} style={{ marginTop: 4 }}>
+                          <span style={{ color: C.text, fontWeight: 600 }}>{p.name}</span>
+                          <span style={{ color: C.sub }}> — {p.why}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {foodResult.suggestions && foodResult.suggestions.length > 0 && (
+                    <div style={{ marginBottom: foodResult.tip ? 10 : 0 }}>
+                      <span style={{ color: C.goldDim, fontSize: 11, letterSpacing: 1 }}>이런 술도</span>
+                      {foodResult.suggestions.map((p, i) => (
+                        <div key={i} style={{ marginTop: 4 }}>
+                          <span style={{ width: 7, height: 7, borderRadius: "50%", display: "inline-block",
+                            marginRight: 6, background: p.kind === "whisky" ? C.whisky : C.wine }} />
+                          <span style={{ color: C.text, fontWeight: 600 }}>{p.name}</span>
+                          <span style={{ color: C.sub }}> — {p.why}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {foodResult.tip && (
+                    <div style={{ color: C.sub, fontSize: 12, fontStyle: "italic",
+                      paddingTop: 8, borderTop: `1px solid ${C.line}` }}>{foodResult.tip}</div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 8, letterSpacing: 1 }}>
               누구의 취향으로 추천받을까요?
             </div>
@@ -1414,13 +1706,8 @@ function App() {
                       <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 7 }}>
                         마셔봤다면 평가, 아니면 위시리스트에 담기
                       </div>
-                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
-                        {[70, 80, 85, 90, 95].map((s) => (
-                          <button key={s} onClick={() => saveFromRec(r, s, "tasted")}
-                            style={{ flex: "1 0 17%", padding: "7px 0", fontSize: 12, background: C.panel2,
-                              color: C.text, border: `1px solid ${C.line}`, borderRadius: 6,
-                              cursor: "pointer" }}>{s}</button>
-                        ))}
+                      <div style={{ marginBottom: 8 }}>
+                        <ScoreInput onSubmit={(s) => saveFromRec(r, s, "tasted")} />
                       </div>
                       <button onClick={() => saveFromRec(r, null, "wishlist")}
                         style={{ width: "100%", padding: "10px", background: "transparent",
@@ -1604,7 +1891,18 @@ function App() {
       </main>
 
       {/* 저장 상태 토스트 */}
-      {toast && (
+      {pendingDelete && (
+        <div style={{ position: "fixed", left: "50%", bottom: 78, transform: "translateX(-50%)",
+          zIndex: 51, background: C.panel2, color: C.text, border: `1px solid ${C.line}`,
+          borderRadius: 20, padding: "9px 12px 9px 18px", fontSize: 13, display: "flex",
+          alignItems: "center", gap: 12, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", whiteSpace: "nowrap" }}>
+          <span>삭제됨</span>
+          <button onClick={undoDelete}
+            style={{ background: "none", border: "none", color: C.gold, fontWeight: 700,
+              fontSize: 13, cursor: "pointer", padding: "2px 6px" }}>되돌리기</button>
+        </div>
+      )}
+      {toast && !pendingDelete && (
         <div style={{ position: "fixed", left: "50%", bottom: 78, transform: "translateX(-50%)",
           zIndex: 50, background: toast.kind === "error" ? "#5A2530" : C.panel2,
           color: toast.kind === "error" ? "#F4B8C0" : (toast.kind === "done" ? C.gold : C.text),
