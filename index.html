@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.42";
+const APP_VERSION = "v0.43";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -806,7 +806,6 @@ function App() {
     await savingApi({ action: "save", entry }, status === "wishlist" ? "위시리스트에 담음" : "저장됨");
     setResult(null); setText(""); setImageData(null); setImagePreview(null);
     setCompanions(""); setNote("");
-    setTab("feed");
     refresh();
   }
 
@@ -1738,6 +1737,9 @@ function App() {
                       <span style={{ fontFamily: "Georgia, serif", fontSize: 16 }}>{c.name}</span>
                       <OwnedBadge name={c.name} />
                     </div>
+                    {c.nameKo && c.nameKo !== c.name && (
+                      <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>{c.nameKo}</div>
+                    )}
                     {c.hint && <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>{c.hint}</div>}
                   </button>
                 ))}
@@ -1780,6 +1782,9 @@ function App() {
                             {it.name}
                             <OwnedBadge name={it.name} />
                           </div>
+                          {it.nameKo && it.nameKo !== it.name && (
+                            <div style={{ fontSize: 11, color: C.sub, marginTop: -1, marginBottom: 2 }}>{it.nameKo}</div>
+                          )}
                           <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.4 }}>{it.why}</div>
                         </div>
                       </div>
@@ -1823,6 +1828,12 @@ function App() {
                       {result.name}
                       <OwnedBadge name={result.name} />
                     </div>
+                    {result.nameKo && result.nameKo !== result.name && (
+                      <div style={{ fontSize: 12, color: C.sub, marginTop: 1 }}>{result.nameKo}</div>
+                    )}
+                    {result.nameKo && result.nameKo !== result.name && (
+                      <div style={{ fontSize: 12, color: C.sub, marginTop: 1 }}>{result.nameKo}</div>
+                    )}
                   </div>
                 </div>
                 <div style={{ marginTop: 14, fontSize: 13, color: C.sub, lineHeight: 1.5 }}>
