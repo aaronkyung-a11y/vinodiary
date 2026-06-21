@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.43";
+const APP_VERSION = "v0.44";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -320,19 +320,19 @@ function App() {
 
   // 셀러 항목 정보 편집
   const [editEntry, setEditEntry] = useState(null); // 편집 중 항목 id
-  const [editVals, setEditVals] = useState({ name: "", kind: "wine", subtype: "" });
+  const [editVals, setEditVals] = useState({ name: "", kind: "wine", subtype: "", nameKo: "" });
   function startEditEntry(e) {
     setEditEntry(e.id);
-    setEditVals({ name: e.name || "", kind: e.kind || "wine", subtype: e.subtype || "" });
+    setEditVals({ name: e.name || "", kind: e.kind || "wine", subtype: e.subtype || "", nameKo: e.nameKo || "" });
   }
   async function saveEditEntry(e) {
     const v = editVals;
     if (!v.name.trim()) { showToast("이름을 입력해 주세요", "error"); return; }
     // 화면 즉시 반영
     setEntries((prev) => prev.map((x) => x.id === e.id
-      ? { ...x, name: v.name.trim(), kind: v.kind, subtype: v.subtype } : x));
+      ? { ...x, name: v.name.trim(), kind: v.kind, subtype: v.subtype, nameKo: v.nameKo } : x));
     setEditEntry(null);
-    await savingApi({ action: "setMeta", id: e.id, name: v.name.trim(), kind: v.kind, subtype: v.subtype }, "수정됐어요");
+    await savingApi({ action: "setMeta", id: e.id, name: v.name.trim(), kind: v.kind, subtype: v.subtype, nameKo: v.nameKo }, "수정됐어요");
   }
 
   // 토스트: 저장 진행/완료/실패를 화면 하단에 잠깐 표시
@@ -769,6 +769,7 @@ function App() {
       myScore: null, image: "",
       status: status || "wishlist",
       axes: null, subtype: item.subtype || "",
+      nameKo: item.nameKo || "",
     };
     await savingApi({ action: "save", entry }, status === "tasted" ? "셀러에 저장됨" : "위시리스트에 담음");
     setMenuDone((prev) => ({ ...prev, [item.name]: status || "wishlist" }));
@@ -800,6 +801,7 @@ function App() {
       status: status || "tasted",
       axes: result.axes || null,
       subtype: result.subtype || "",
+      nameKo: result.nameKo || "",
       companions: companions.trim(),
       note: note.trim(),
     };
@@ -825,6 +827,7 @@ function App() {
       status: status || "tasted",
       axes: d.axes || null,
       subtype: d.subtype || rec.subtype || "",
+      nameKo: rec.nameKo || d.nameKo || "",
     };
     await savingApi({ action: "save", entry }, status === "wishlist" ? "위시리스트에 담음" : "셀러에 저장됨");
     // 이 추천 카드를 '처리됨'으로 표시
@@ -2099,6 +2102,12 @@ function App() {
                       whiteSpace: open ? "normal" : "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {e.name}
                     </div>
+                    {e.nameKo && e.nameKo !== e.name && (
+                      <div style={{ fontSize: 11, color: C.sub, marginTop: -1, marginBottom: 2,
+                        whiteSpace: open ? "normal" : "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {e.nameKo}
+                      </div>
+                    )}
                     <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.4 }}>{e.resembles}</div>
                   </div>
                   <button onClick={() => removeEntry(e.id)}
@@ -2170,6 +2179,12 @@ function App() {
                         borderRadius: 10, padding: 12, marginBottom: 10 }}>
                         <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 6 }}>이름</div>
                         <input value={editVals.name} onChange={(ev) => setEditVals((p) => ({ ...p, name: ev.target.value }))}
+                          style={{ width: "100%", boxSizing: "border-box", background: C.panel,
+                            border: `1px solid ${C.line}`, borderRadius: 8, color: C.text,
+                            padding: "8px 10px", fontSize: 14, marginBottom: 10 }} />
+                        <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 6 }}>한글 표기 (선택)</div>
+                        <input value={editVals.nameKo} onChange={(ev) => setEditVals((p) => ({ ...p, nameKo: ev.target.value }))}
+                          placeholder="예: 라르망디에-베르니에"
                           style={{ width: "100%", boxSizing: "border-box", background: C.panel,
                             border: `1px solid ${C.line}`, borderRadius: 8, color: C.text,
                             padding: "8px 10px", fontSize: 14, marginBottom: 10 }} />
