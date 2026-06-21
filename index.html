@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.36";
+const APP_VERSION = "v0.37";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -276,6 +276,33 @@ function App() {
   useEffect(() => {
     if (ready && tab === "feed" && posts === null) loadPosts();
   }, [ready, tab]);
+
+  // 위시 항목이 담은 지 오래됐는지(60일+)
+  function isOldWish(e) {
+    if (!e.date) return false;
+    const m = String(e.date).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return false;
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    const days = (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24);
+    return days >= 60;
+  }
+
+  // 셀러 항목 정보 편집
+  const [editEntry, setEditEntry] = useState(null); // 편집 중 항목 id
+  const [editVals, setEditVals] = useState({ name: "", kind: "wine", subtype: "" });
+  function startEditEntry(e) {
+    setEditEntry(e.id);
+    setEditVals({ name: e.name || "", kind: e.kind || "wine", subtype: e.subtype || "" });
+  }
+  async function saveEditEntry(e) {
+    const v = editVals;
+    if (!v.name.trim()) { showToast("이름을 입력해 주세요", "error"); return; }
+    // 화면 즉시 반영
+    setEntries((prev) => prev.map((x) => x.id === e.id
+      ? { ...x, name: v.name.trim(), kind: v.kind, subtype: v.subtype } : x));
+    setEditEntry(null);
+    await savingApi({ action: "setMeta", id: e.id, name: v.name.trim(), kind: v.kind, subtype: v.subtype }, "수정됐어요");
+  }
 
   // 토스트: 저장 진행/완료/실패를 화면 하단에 잠깐 표시
   // 셀러 항목을 피드 포스트로 공유
@@ -1877,12 +1904,12 @@ function App() {
                 <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}
                   style={{ flex: 1, background: C.panel, color: C.text, border: `1px solid ${C.line}`,
                     borderRadius: 8, padding: "8px 10px", fontSize: 13, cursor: "pointer" }}>
-                  <option value="recent">최신순</option>
-                  <option value="oldest">오래된순</option>
-                  <option value="scoreHigh">내 점수 높은순</option>
-                  <option value="scoreLow">내 점수 낮은순</option>
+                  <option value="recent">{kindFilter === "wishlist" ? "최근 담은순" : "최신순"}</option>
+                  <option value="oldest">{kindFilter === "wishlist" ? "오래 담은순" : "오래된순"}</option>
+                  {kindFilter !== "wishlist" && <option value="scoreHigh">내 점수 높은순</option>}
+                  {kindFilter !== "wishlist" && <option value="scoreLow">내 점수 낮은순</option>}
                   <option value="predHigh">예측 점수 높은순</option>
-                  {raters.map((n) => (
+                  {kindFilter !== "wishlist" && raters.map((n) => (
                     <option key={n} value={`friend:${n}`}>{n} 점수 높은순</option>
                   ))}
                 </select>
@@ -1894,7 +1921,12 @@ function App() {
                   const isWish = k === "wishlist";
                   const count = isWish ? entries.filter((e) => e.status === "wishlist").length : 0;
                   return (
-                  <button key={k} onClick={() => setKindFilter(k)}
+                  <button key={k} onClick={() => {
+                    setKindFilter(k);
+                    if (k === "wishlist" && (sortBy === "scoreHigh" || sortBy === "scoreLow" || sortBy.startsWith("friend:"))) {
+                      setSortBy("recent");
+                    }
+                  }}
                     style={{ flex: isWish ? "1 0 100%" : 1, padding: "8px 0", fontSize: 13,
                       background: kindFilter === k ? C.gold : C.panel,
                       color: kindFilter === k ? "#1B160C" : C.sub,
@@ -2000,6 +2032,9 @@ function App() {
                         background: e.kind === "whisky" ? C.whisky : C.wine }} />
                       <span style={{ fontSize: 10, color: C.sub, letterSpacing: 1 }}>
                         {e.kind === "whisky" ? "WHISKY" : "WINE"}{isWish ? " · 위시리스트" : ""}{e.image ? " · 📷" : ""} · {e.date}
+                        {isWish && isOldWish(e) && (
+                          <span style={{ color: C.goldDim, marginLeft: 4 }}>· ⏳ 오래됨</span>
+                        )}
                       </span>
                     </div>
                     <div style={{ fontFamily: "Georgia, serif", fontSize: 16, margin: "3px 0",
@@ -2064,6 +2099,60 @@ function App() {
                           borderRadius: 8, cursor: "pointer" }}>
                         ❖ 피드에 공유
                       </button>
+                    )}
+                    <button onClick={() => editEntry === e.id ? setEditEntry(null) : startEditEntry(e)}
+                      style={{ marginBottom: 10, marginLeft: 6, padding: "6px 12px", fontSize: 12,
+                        background: "transparent", color: C.sub, border: `1px solid ${C.line}`,
+                        borderRadius: 8, cursor: "pointer" }}>
+                      ✎ 정보 수정
+                    </button>
+                    {/* 정보 편집 폼 */}
+                    {editEntry === e.id && (
+                      <div style={{ background: C.panel2, border: `1px solid ${C.goldDim}`,
+                        borderRadius: 10, padding: 12, marginBottom: 10 }}>
+                        <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 6 }}>이름</div>
+                        <input value={editVals.name} onChange={(ev) => setEditVals((p) => ({ ...p, name: ev.target.value }))}
+                          style={{ width: "100%", boxSizing: "border-box", background: C.panel,
+                            border: `1px solid ${C.line}`, borderRadius: 8, color: C.text,
+                            padding: "8px 10px", fontSize: 14, marginBottom: 10 }} />
+                        <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 6 }}>종류</div>
+                        <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                          {[["wine", "와인"], ["whisky", "위스키"]].map(([k, label]) => {
+                            const sel = editVals.kind === k;
+                            return (
+                              <button key={k} onClick={() => setEditVals((p) => ({ ...p, kind: k, subtype: k === "whisky" ? "whisky" : (p.subtype === "whisky" ? "" : p.subtype) }))}
+                                style={{ flex: 1, padding: "7px 0", fontSize: 13, borderRadius: 8,
+                                  background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
+                                  border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer" }}>{label}</button>
+                            );
+                          })}
+                        </div>
+                        {editVals.kind === "wine" && (
+                          <React.Fragment>
+                            <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 6 }}>세부 종류</div>
+                            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10 }}>
+                              {[["", "미지정"], ["champagne", "샴페인"], ["white", "화이트"], ["red", "레드"],
+                                ["rose", "로제"], ["sweet", "스위트"]].map(([k, label]) => {
+                                const sel = editVals.subtype === k;
+                                return (
+                                  <button key={k || "none"} onClick={() => setEditVals((p) => ({ ...p, subtype: k }))}
+                                    style={{ padding: "5px 10px", fontSize: 12, borderRadius: 12,
+                                      background: sel ? C.goldDim : C.panel, color: sel ? "#fff" : C.sub,
+                                      border: `1px solid ${sel ? C.goldDim : C.line}`, cursor: "pointer" }}>{label}</button>
+                                );
+                              })}
+                            </div>
+                          </React.Fragment>
+                        )}
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button onClick={() => setEditEntry(null)}
+                            style={{ flex: 1, padding: 9, background: "transparent", color: C.sub,
+                              border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>취소</button>
+                          <button onClick={() => saveEditEntry(e)}
+                            style={{ flex: 2, padding: 9, background: C.gold, color: "#1B160C", border: "none",
+                              borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>저장</button>
+                        </div>
+                      </div>
                     )}
                     {/* 평가자별 점수 */}
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
