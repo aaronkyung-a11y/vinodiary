@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.28";
+const APP_VERSION = "v0.29";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 function kstNow() {
@@ -231,6 +231,10 @@ function App() {
   const [postImagePreview, setPostImagePreview] = useState(null);
   const [postAuthor, setPostAuthor] = useState("me"); // 새 포스트 작성자
   const [posting, setPosting] = useState(false);
+  const [postWineName, setPostWineName] = useState(""); // 연동할 술 이름
+  const [postWine, setPostWine] = useState(null); // 분석 결과(axes·예측 등)
+  const [postWineLoading, setPostWineLoading] = useState(false);
+  const [postWineScore, setPostWineScore] = useState(null); // 이 술에 줄 점수(셀러 반영)
   const postFileRef = useRef(null);
   const postCameraRef = useRef(null);
   const [menuResult, setMenuResult] = useState(null);
@@ -272,6 +276,22 @@ function App() {
   // 내 표시 이름(빈 값이면 "나")
   const myLabel = userName.trim() || "나";
 
+  // Drive 이미지 표시 실패 시 다른 형식으로 폴백 후 그래도 실패하면 숨김
+  function imgFallback(ev) {
+    const el = ev.target;
+    const src = el.src || "";
+    const m = src.match(/[-\w]{25,}/); // Drive 파일 ID 추출
+    const id = m ? m[0] : null;
+    if (!id) { el.style.display = "none"; return; }
+    if (src.includes("lh3.googleusercontent.com")) {
+      el.src = "https://drive.google.com/thumbnail?id=" + id + "&sz=w1000";
+    } else if (src.includes("thumbnail")) {
+      el.src = "https://drive.google.com/uc?export=view&id=" + id;
+    } else {
+      el.style.display = "none";
+    }
+  }
+
   // 포스트 목록 로드
   async function loadPosts() {
     try {
@@ -307,9 +327,26 @@ function App() {
     reader.readAsDataURL(file);
   }
 
+  async function analyzePostWine() {
+    if (!postWineName.trim()) { showToast("술 이름을 입력해 주세요", "error"); return; }
+    setPostWineLoading(true);
+    try {
+      const r = await api({ action: "analyze", text: postWineName.trim(), forWhom: postAuthor });
+      if (r.error) throw new Error(r.error);
+      setPostWine(r);
+    } catch (e) {
+      showToast("술 분석에 실패했어요", "error");
+    } finally {
+      setPostWineLoading(false);
+    }
+  }
+  function clearPostWine() {
+    setPostWine(null); setPostWineName(""); setPostWineScore(null);
+  }
+
   async function submitPost() {
-    if (!postText.trim() && !postImageData) {
-      showToast("사진이나 글을 넣어 주세요", "error"); return;
+    if (!postText.trim() && !postImageData && !postWine) {
+      showToast("사진·글·술 중 하나는 넣어 주세요", "error"); return;
     }
     setPosting(true);
     try {
@@ -319,16 +356,47 @@ function App() {
         const up = await api({ action: "uploadPhoto", imageData: postImageData });
         if (up && up.ok && up.url) imageUrl = up.url;
       }
+      const isMe = postAuthor === "me" || postAuthor === "나";
+      // 술 정보(그래프용)
+      const wine = postWine ? {
+        name: postWine.name, kind: postWine.kind, axes: postWine.axes || null,
+        predictedScore: postWine.predictedScore ?? null,
+        myScore: postWineScore ?? null,
+        author: postAuthor,
+      } : null;
       const post = {
         id: Date.now(),
-        author: postAuthor === "me" ? "me" : postAuthor,
+        author: isMe ? "me" : postAuthor,
         date: kstNow(),
         image: imageUrl,
         text: postText.trim(),
+        wine,
       };
       await savingApi({ action: "addPost", post }, "올렸어요");
+
+      // 술 분석을 붙였으면 셀러에도 기록
+      if (postWine) {
+        const entry = {
+          id: Date.now() + 1,
+          date: kstNow(),
+          name: postWine.name, kind: postWine.kind,
+          resembles: postWine.resembles || "",
+          predictedScore: postWine.predictedScore ?? null,
+          reason: postWine.reason || "",
+          myScore: isMe ? (postWineScore ?? null) : null,
+          scores: (!isMe && postWineScore != null) ? { [postAuthor]: postWineScore } : {},
+          image: imageUrl,
+          status: "tasted",
+          axes: postWine.axes || null,
+          subtype: postWine.subtype || "",
+          companions: "", note: postText.trim(),
+        };
+        await api({ action: "save", entry });
+      }
+
       setComposing(false); setPostText(""); setPostImageData(null); setPostImagePreview(null);
-      loadPosts();
+      clearPostWine();
+      loadPosts(); refresh();
     } catch (e) {
       showToast("올리기 실패", "error");
     } finally {
@@ -1130,8 +1198,53 @@ function App() {
                   rows={3} style={{ width: "100%", boxSizing: "border-box", background: C.panel2,
                     border: `1px solid ${C.line}`, borderRadius: 10, color: C.text, padding: 12,
                     fontSize: 14, resize: "vertical", marginBottom: 10 }} />
+
+                {/* 술 분석 연동 */}
+                {!postWine ? (
+                  <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                    <input value={postWineName} onChange={(e) => setPostWineName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && analyzePostWine()}
+                      placeholder="🍷 마신 술 이름 (선택 — 평가·그래프 연동)"
+                      style={{ flex: 1, background: C.panel2, border: `1px solid ${C.line}`,
+                        borderRadius: 8, color: C.text, padding: "9px 12px", fontSize: 13 }} />
+                    <button onClick={analyzePostWine} disabled={postWineLoading}
+                      style={{ padding: "0 14px", background: "transparent", color: C.gold,
+                        border: `1px solid ${C.goldDim}`, borderRadius: 8, fontSize: 12,
+                        cursor: "pointer", whiteSpace: "nowrap" }}>
+                      {postWineLoading ? "…" : "분석"}
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ background: C.panel2, border: `1px solid ${C.goldDim}`,
+                    borderRadius: 10, padding: 12, marginBottom: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: "50%",
+                          background: postWine.kind === "whisky" ? C.whisky : C.wine }} />
+                        <span style={{ fontFamily: "Georgia, serif", fontSize: 15 }}>{postWine.name}</span>
+                      </div>
+                      <button onClick={clearPostWine}
+                        style={{ background: "none", border: "none", color: C.sub, fontSize: 16,
+                          cursor: "pointer" }}>×</button>
+                    </div>
+                    {postWine.axes && <AxisBars axes={postWine.axes} />}
+                    <div style={{ fontSize: 11, color: C.sub, marginTop: 8, marginBottom: 6 }}>
+                      이 술에 점수를 주면 셀러에도 기록돼요 (예측 {postWine.predictedScore ?? "—"})
+                    </div>
+                    {postWineScore != null ? (
+                      <div style={{ fontSize: 13, color: C.gold }}>내 점수: {postWineScore}
+                        <button onClick={() => setPostWineScore(null)}
+                          style={{ marginLeft: 8, background: "none", border: "none",
+                            color: C.sub, fontSize: 12, cursor: "pointer" }}>지우기</button>
+                      </div>
+                    ) : (
+                      <ScoreInput onSubmit={(s) => setPostWineScore(s)} />
+                    )}
+                  </div>
+                )}
+
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => { setComposing(false); setPostText(""); setPostImageData(null); setPostImagePreview(null); }}
+                  <button onClick={() => { setComposing(false); setPostText(""); setPostImageData(null); setPostImagePreview(null); clearPostWine(); }}
                     style={{ flex: 1, padding: 11, background: "transparent", color: C.sub,
                       border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>
                     취소
@@ -1173,7 +1286,7 @@ function App() {
                     {p.image ? (
                       <img src={p.image} alt="" style={{ width: "100%", maxHeight: 360,
                         objectFit: "cover", display: "block" }}
-                        onError={(ev) => { ev.target.style.display = "none"; }} />
+                        onError={imgFallback} />
                     ) : null}
                     <div style={{ padding: 16 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1195,6 +1308,22 @@ function App() {
                       {p.text && (
                         <div style={{ fontSize: 14, color: C.text, lineHeight: 1.6, marginTop: 10,
                           whiteSpace: "pre-wrap" }}>{p.text}</div>
+                      )}
+                      {p.wine && (
+                        <div style={{ marginTop: 12, background: C.panel2, borderRadius: 10,
+                          padding: 12, border: `1px solid ${C.line}` }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ width: 7, height: 7, borderRadius: "50%",
+                                background: p.wine.kind === "whisky" ? C.whisky : C.wine }} />
+                              <span style={{ fontFamily: "Georgia, serif", fontSize: 14 }}>{p.wine.name}</span>
+                            </div>
+                            {(p.wine.myScore != null) && (
+                              <span style={{ fontSize: 12, color: C.gold, fontWeight: 700 }}>{p.wine.myScore}점</span>
+                            )}
+                          </div>
+                          {p.wine.axes && <AxisBars axes={p.wine.axes} />}
+                        </div>
                       )}
                     </div>
                   </div>
