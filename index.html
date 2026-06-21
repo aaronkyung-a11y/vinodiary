@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.34";
+const APP_VERSION = "v0.35";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -854,11 +854,16 @@ function App() {
 
   async function loadProfile() {
     setProfileLoading(true);
+    setProfile(null);
     try {
       const r = await api({ action: "tasteProfile", rater: recFor === "common" ? "me" : recFor });
-      setProfile(r);
+      if (!r || r.error) {
+        setProfile({ _failed: true, note: (r && r.error) ? String(r.error) : "분석 응답을 받지 못했어요." });
+      } else {
+        setProfile(r);
+      }
     } catch (e) {
-      setProfile(null);
+      setProfile({ _failed: true, note: "분석 호출에 실패했어요. 백엔드 재배포를 확인해 주세요." });
     } finally {
       setProfileLoading(false);
     }
@@ -2309,12 +2314,22 @@ function App() {
                 {profileLoading ? "분석 중…" :
                   `${recFor === "common" || recFor === "me" ? "내" : recFor + "의"} 취향 리포트 보기`}
               </button>
-              {profile && profile.enough === false && (
+              {profile && profile._failed && (
+                <div style={{ marginTop: 8, fontSize: 12, color: "#D98", textAlign: "center", lineHeight: 1.5 }}>
+                  {profile.note}
+                </div>
+              )}
+              {profile && !profile._failed && profile.enough === false && (
                 <div style={{ marginTop: 8, fontSize: 12, color: C.sub, textAlign: "center" }}>
                   {profile.note}
                 </div>
               )}
-              {profile && profile.enough && (
+              {profile && !profile._failed && profile.enough !== false && !profile.summary && !profile.consistent && (
+                <div style={{ marginTop: 8, fontSize: 12, color: C.sub, textAlign: "center", lineHeight: 1.5 }}>
+                  분석 결과를 해석하지 못했어요. 잠시 후 다시 시도해 주세요.
+                </div>
+              )}
+              {profile && !profile._failed && profile.enough && (
                 <div style={{ marginTop: 10, background: C.panel, border: `1px solid ${C.line}`,
                   borderRadius: 12, padding: 14, fontSize: 13, lineHeight: 1.6 }}>
                   {profile.summary && (
@@ -2361,6 +2376,7 @@ function App() {
                   )}
                   {/* 데이터 통계 (프론트 계산) */}
                   {(() => {
+                    try {
                     const who = recFor === "common" || recFor === "me" ? "me" : recFor;
                     const isMe = who === "me";
                     const scoreOf = (e) => isMe ? e.myScore : (e.scores ? e.scores[who] : null);
@@ -2403,6 +2419,7 @@ function App() {
                         </div>
                       </div>
                     );
+                    } catch (err) { return null; }
                   })()}
                 </div>
               )}
