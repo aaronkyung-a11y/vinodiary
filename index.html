@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.29";
+const APP_VERSION = "v0.30";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 function kstNow() {
@@ -225,6 +225,7 @@ function App() {
   const [note, setNote] = useState(""); // 메모
   const [posts, setPosts] = useState(null); // 피드 포스트 목록
   const [feedAuthor, setFeedAuthor] = useState("all"); // 피드 필터: all | me | 친구
+  const [feedLimit, setFeedLimit] = useState(5); // 피드 표시 개수(더보기)
   const [composing, setComposing] = useState(false); // 포스트 작성 중
   const [postText, setPostText] = useState("");
   const [postImageData, setPostImageData] = useState(null);
@@ -328,17 +329,41 @@ function App() {
   }
 
   async function analyzePostWine() {
-    if (!postWineName.trim()) { showToast("술 이름을 입력해 주세요", "error"); return; }
+    if (!postWineName.trim() && !postImageData) {
+      showToast("술 이름을 적거나 사진을 올려 주세요", "error"); return;
+    }
     setPostWineLoading(true);
     try {
-      const r = await api({ action: "analyze", text: postWineName.trim(), forWhom: postAuthor });
+      const payload = { action: "analyze", forWhom: postAuthor };
+      if (postWineName.trim()) payload.text = postWineName.trim();
+      if (postImageData) payload.imageData = postImageData; // 사진 속 술 자동 인식
+      const r = await api(payload);
       if (r.error) throw new Error(r.error);
       setPostWine(r);
+      // 이름칸이 비어 있으면 인식된 이름 채움
+      if (!postWineName.trim() && r.name) setPostWineName(r.name);
+      // 셀러에 같은 술이 있으면 기록 불러오기
+      mergeFromCellar(r);
     } catch (e) {
       showToast("술 분석에 실패했어요", "error");
     } finally {
       setPostWineLoading(false);
     }
+  }
+
+  // 분석된 술이 셀러에 이미 있으면 점수·축을 가져옴
+  function mergeFromCellar(wine) {
+    if (!wine || !wine.name) return;
+    const q = wine.name.toLowerCase().replace(/\s+/g, "");
+    const found = entries.find((e) => e.status !== "wishlist" &&
+      (e.name || "").toLowerCase().replace(/\s+/g, "") === q);
+    if (!found) return;
+    const isMe = postAuthor === "me" || postAuthor === "나";
+    const existingScore = isMe ? found.myScore : (found.scores ? found.scores[postAuthor] : null);
+    if (existingScore != null) setPostWineScore(existingScore);
+    // 셀러에 저장된 축이 있으면 그래프도 그걸로
+    if (found.axes) setPostWine((prev) => prev ? { ...prev, axes: found.axes, _fromCellar: true } : prev);
+    showToast("셀러에 있는 술이라 기록을 불러왔어요", "done");
   }
   function clearPostWine() {
     setPostWine(null); setPostWineName(""); setPostWineScore(null);
@@ -404,9 +429,22 @@ function App() {
     }
   }
 
-  async function removePost(id) {
+  const [pendingPostDelete, setPendingPostDelete] = useState(null);
+  function removePost(id) {
+    const target = (posts || []).find((p) => p.id === id);
+    if (!target) return;
     setPosts((prev) => (prev || []).filter((p) => p.id !== id));
-    await api({ action: "deletePost", id });
+    const timer = setTimeout(() => {
+      api({ action: "deletePost", id });
+      setPendingPostDelete(null);
+    }, 5000);
+    setPendingPostDelete({ post: target, timer });
+  }
+  function undoPostDelete() {
+    if (!pendingPostDelete) return;
+    clearTimeout(pendingPostDelete.timer);
+    setPosts((prev) => [pendingPostDelete.post, ...(prev || [])]);
+    setPendingPostDelete(null);
   }
 
   // 친구 이름 변경(전 기록 반영)
@@ -1127,7 +1165,7 @@ function App() {
                 {[["all", "전체"], ["me", myLabel]].concat(raters.map((n) => [n, n])).map(([k, label]) => {
                   const sel = feedAuthor === k;
                   return (
-                    <button key={k} onClick={() => setFeedAuthor(k)}
+                    <button key={k} onClick={() => { setFeedAuthor(k); setFeedLimit(5); }}
                       style={{ padding: "5px 12px", fontSize: 12, borderRadius: 14,
                         background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
                         border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer",
@@ -1201,18 +1239,27 @@ function App() {
 
                 {/* 술 분석 연동 */}
                 {!postWine ? (
-                  <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                    <input value={postWineName} onChange={(e) => setPostWineName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && analyzePostWine()}
-                      placeholder="🍷 마신 술 이름 (선택 — 평가·그래프 연동)"
-                      style={{ flex: 1, background: C.panel2, border: `1px solid ${C.line}`,
-                        borderRadius: 8, color: C.text, padding: "9px 12px", fontSize: 13 }} />
-                    <button onClick={analyzePostWine} disabled={postWineLoading}
-                      style={{ padding: "0 14px", background: "transparent", color: C.gold,
-                        border: `1px solid ${C.goldDim}`, borderRadius: 8, fontSize: 12,
-                        cursor: "pointer", whiteSpace: "nowrap" }}>
-                      {postWineLoading ? "…" : "분석"}
-                    </button>
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input value={postWineName} onChange={(e) => setPostWineName(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && analyzePostWine()}
+                        placeholder={postImageData ? "🍷 술 이름(비워두면 사진으로 인식)" : "🍷 마신 술 이름 (선택)"}
+                        style={{ flex: 1, background: C.panel2, border: `1px solid ${C.line}`,
+                          borderRadius: 8, color: C.text, padding: "9px 12px", fontSize: 13 }} />
+                      <button onClick={analyzePostWine} disabled={postWineLoading}
+                        style={{ padding: "0 14px", background: postImageData ? C.gold : "transparent",
+                          color: postImageData ? "#1B160C" : C.gold,
+                          border: `1px solid ${C.goldDim}`, borderRadius: 8, fontSize: 12,
+                          fontWeight: postImageData ? 700 : 400,
+                          cursor: "pointer", whiteSpace: "nowrap" }}>
+                        {postWineLoading ? "…" : postImageData ? "사진 분석" : "분석"}
+                      </button>
+                    </div>
+                    {postImageData && (
+                      <div style={{ fontSize: 11, color: C.sub, marginTop: 5 }}>
+                        올린 사진 속 술을 자동으로 인식해 평가·그래프를 붙여요.
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div style={{ background: C.panel2, border: `1px solid ${C.goldDim}`,
@@ -1228,6 +1275,11 @@ function App() {
                           cursor: "pointer" }}>×</button>
                     </div>
                     {postWine.axes && <AxisBars axes={postWine.axes} />}
+                    {postWine._fromCellar && (
+                      <div style={{ fontSize: 11, color: C.gold, marginTop: 6 }}>
+                        ✓ 셀러에 있던 술 — 기존 점수·특성을 불러왔어요
+                      </div>
+                    )}
                     <div style={{ fontSize: 11, color: C.sub, marginTop: 8, marginBottom: 6 }}>
                       이 술에 점수를 주면 셀러에도 기록돼요 (예측 {postWine.predictedScore ?? "—"})
                     </div>
@@ -1278,7 +1330,10 @@ function App() {
                 );
               }
               const sorted = [...filtered].sort((a, b) => Number(b.id) - Number(a.id));
-              return sorted.map((p) => {
+              const shown = sorted.slice(0, feedLimit);
+              return (
+                <React.Fragment>
+                  {shown.map((p) => {
                 const who = (p.author === "me" || p.author === "") ? myLabel : p.author;
                 return (
                   <div key={p.id} style={{ background: C.panel, border: `1px solid ${C.line}`,
@@ -1301,9 +1356,10 @@ function App() {
                             <div style={{ fontSize: 10, color: C.sub }}>{p.date}</div>
                           </div>
                         </div>
-                        <button onClick={() => removePost(p.id)}
-                          style={{ background: "none", border: "none", color: C.line, fontSize: 18,
-                            cursor: "pointer" }}>×</button>
+                        <button onClick={() => { if (window.confirm("이 기록을 삭제할까요?")) removePost(p.id); }}
+                          title="삭제"
+                          style={{ background: "none", border: "none", color: C.sub, fontSize: 15,
+                            cursor: "pointer" }}>🗑</button>
                       </div>
                       {p.text && (
                         <div style={{ fontSize: 14, color: C.text, lineHeight: 1.6, marginTop: 10,
@@ -1328,7 +1384,17 @@ function App() {
                     </div>
                   </div>
                 );
-              });
+              })}
+                  {sorted.length > feedLimit && (
+                    <button onClick={() => setFeedLimit((n) => n + 5)}
+                      style={{ width: "100%", padding: 12, background: C.panel, color: C.gold,
+                        border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 13,
+                        cursor: "pointer", marginBottom: 14 }}>
+                      더 보기 ({sorted.length - feedLimit}개 남음)
+                    </button>
+                  )}
+                </React.Fragment>
+              );
             })()}
           </section>
         )}
@@ -2347,6 +2413,17 @@ function App() {
       </main>
 
       {/* 저장 상태 토스트 */}
+      {pendingPostDelete && (
+        <div style={{ position: "fixed", left: "50%", bottom: 78, transform: "translateX(-50%)",
+          zIndex: 51, background: C.panel2, color: C.text, border: `1px solid ${C.line}`,
+          borderRadius: 20, padding: "9px 12px 9px 18px", fontSize: 13, display: "flex",
+          alignItems: "center", gap: 12, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", whiteSpace: "nowrap" }}>
+          <span>기록 삭제됨</span>
+          <button onClick={undoPostDelete}
+            style={{ background: "none", border: "none", color: C.gold, fontWeight: 700,
+              fontSize: 13, cursor: "pointer", padding: "2px 6px" }}>되돌리기</button>
+        </div>
+      )}
       {pendingDelete && (
         <div style={{ position: "fixed", left: "50%", bottom: 78, transform: "translateX(-50%)",
           zIndex: 51, background: C.panel2, color: C.text, border: `1px solid ${C.line}`,
