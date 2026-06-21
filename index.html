@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.40";
+const APP_VERSION = "v0.41";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -278,6 +278,30 @@ function App() {
   }, [ready, tab]);
 
   // 위시 항목이 담은 지 오래됐는지(60일+)
+  // 술 이름이 셀러/위시에 이미 있는지 → 'cellar' | 'wishlist' | null
+  function ownedStatus(name) {
+    if (!name) return null;
+    const q = String(name).toLowerCase().replace(/\s+/g, "");
+    if (!q) return null;
+    const hit = entries.find((e) => (e.name || "").toLowerCase().replace(/\s+/g, "") === q);
+    if (!hit) return null;
+    return hit.status === "wishlist" ? "wishlist" : "cellar";
+  }
+  // 소유 상태 뱃지 컴포넌트
+  function OwnedBadge({ name }) {
+    const st = ownedStatus(name);
+    if (!st) return null;
+    return (
+      <span style={{ display: "inline-block", marginLeft: 6, fontSize: 10, fontWeight: 700,
+        padding: "2px 7px", borderRadius: 10, verticalAlign: "middle",
+        background: st === "cellar" ? "#2A3A2A" : "#3A2F1A",
+        color: st === "cellar" ? "#A8D8A8" : C.gold,
+        border: `1px solid ${st === "cellar" ? "#3D5A3D" : C.goldDim}` }}>
+        {st === "cellar" ? "✓ 셀러에 있음" : "✧ 위시리스트"}
+      </span>
+    );
+  }
+
   function isOldWish(e) {
     if (!e.date) return false;
     const m = String(e.date).match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -1703,6 +1727,7 @@ function App() {
                       <span style={{ width: 7, height: 7, borderRadius: "50%",
                         background: c.kind === "whisky" ? C.whisky : C.wine }} />
                       <span style={{ fontFamily: "Georgia, serif", fontSize: 16 }}>{c.name}</span>
+                      <OwnedBadge name={c.name} />
                     </div>
                     {c.hint && <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>{c.hint}</div>}
                   </button>
@@ -1775,6 +1800,7 @@ function App() {
                     </div>
                     <div style={{ fontFamily: "Georgia, serif", fontSize: 19, marginTop: 2 }}>
                       {result.name}
+                      <OwnedBadge name={result.name} />
                     </div>
                   </div>
                 </div>
@@ -2737,6 +2763,7 @@ function App() {
                           </div>
                           <div style={{ fontFamily: "Georgia, serif", fontSize: 19, margin: "6px 0" }}>
                             {c.name}
+                            {!c.fromCellar && <OwnedBadge name={c.name} />}
                           </div>
                           {c.why && <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.5 }}>{c.why}</div>}
                         </button>
