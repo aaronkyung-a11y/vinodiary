@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.35";
+const APP_VERSION = "v0.36";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -207,6 +207,7 @@ function App() {
   const [highOnly, setHighOnly] = useState(false); // 85점 이상만
   const [expandedId, setExpandedId] = useState(null);
   const [recDetail, setRecDetail] = useState({});
+  const [recDone, setRecDone] = useState({}); // 추천별 처리완료 {name: {status, score}}
   const [recDetailLoading, setRecDetailLoading] = useState(null);
   const [recFor, setRecFor] = useState("me"); // 추천 기준: me | common | 친구이름
   const [raters, setRaters] = useState([]);    // 등록된 친구 목록
@@ -767,6 +768,8 @@ function App() {
       subtype: d.subtype || rec.subtype || "",
     };
     await savingApi({ action: "save", entry }, status === "wishlist" ? "위시리스트에 담음" : "셀러에 저장됨");
+    // 이 추천 카드를 '처리됨'으로 표시
+    setRecDone((prev) => ({ ...prev, [rec.name]: { status: status || "tasted", score: myScore ?? null } }));
     refresh();
   }
 
@@ -1114,7 +1117,7 @@ function App() {
   }
 
   async function loadRecs() {
-    setRecLoading(true); setRecs(null); setProfile(null);
+    setRecLoading(true); setRecs(null); setProfile(null); setRecDone({});
     try {
       const r = await api({ action: "recommend", forWhom: recFor });
       setRecs(Array.isArray(r) ? r : []);
@@ -2464,6 +2467,12 @@ function App() {
                     )}
                     <div style={{ fontFamily: "Georgia, serif", fontSize: 17 }}>
                       {r.name}
+                      {recDone[r.name] && (
+                        <span style={{ marginLeft: 8, fontSize: 12, color: C.gold,
+                          fontFamily: "system-ui" }}>
+                          ✓ {recDone[r.name].status === "wishlist" ? "위시" : "평가됨"}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{r.why}</div>
@@ -2498,18 +2507,41 @@ function App() {
 
                     {/* 액션: 먹어봤으면 평가 / 안 먹어봤으면 위시리스트 */}
                     <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
-                      <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 7 }}>
-                        마셔봤다면 평가, 아니면 위시리스트에 담기
-                      </div>
-                      <div style={{ marginBottom: 8 }}>
-                        <ScoreInput onSubmit={(s) => saveFromRec(r, s, "tasted")} />
-                      </div>
-                      <button onClick={() => saveFromRec(r, null, "wishlist")}
-                        style={{ width: "100%", padding: "10px", background: "transparent",
-                          color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 8,
-                          fontSize: 13, cursor: "pointer" }}>
-                        ✧ 위시리스트에 추가
-                      </button>
+                      {recDone[r.name] ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 10,
+                          background: C.panel2, borderRadius: 10, padding: "12px 14px" }}>
+                          <span style={{ fontSize: 20, color: C.gold }}>✓</span>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>
+                              {recDone[r.name].status === "wishlist" ? "위시리스트에 담았어요"
+                                : `평가 완료 — ${recDone[r.name].score != null ? recDone[r.name].score + "점" : "예측치로 저장"}`}
+                            </div>
+                            <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                              {recDone[r.name].status === "wishlist" ? "위시리스트 탭에서 볼 수 있어요" : "셀러에 저장됐어요"}
+                            </div>
+                          </div>
+                          <button onClick={() => setRecDone((prev) => { const n = { ...prev }; delete n[r.name]; return n; })}
+                            style={{ background: "none", border: "none", color: C.sub, fontSize: 11,
+                              cursor: "pointer", textDecoration: "underline" }}>
+                            다시
+                          </button>
+                        </div>
+                      ) : (
+                        <React.Fragment>
+                          <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 7 }}>
+                            마셔봤다면 평가, 아니면 위시리스트에 담기
+                          </div>
+                          <div style={{ marginBottom: 8 }}>
+                            <ScoreInput onSubmit={(s) => saveFromRec(r, s, "tasted")} />
+                          </div>
+                          <button onClick={() => saveFromRec(r, null, "wishlist")}
+                            style={{ width: "100%", padding: "10px", background: "transparent",
+                              color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 8,
+                              fontSize: 13, cursor: "pointer" }}>
+                            ✧ 위시리스트에 추가
+                          </button>
+                        </React.Fragment>
+                      )}
                     </div>
                   </div>
                 )}
