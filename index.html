@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.37";
+const APP_VERSION = "v0.39";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -1682,7 +1682,7 @@ function App() {
               style={{ width: "100%", padding: 14, background: C.gold, color: "#1B160C",
                 border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
                 cursor: "pointer", opacity: (analyzing || candLoading) ? 0.6 : 1 }}>
-              {candLoading ? "후보 찾는 중…" : analyzing ? "분석 중…" : "내 취향으로 분석하기"}
+              {candLoading ? "분석 중…" : analyzing ? "분석 중…" : "내 취향으로 분석하기"}
             </button>
             )}
 
@@ -2569,6 +2569,21 @@ function App() {
                     <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>예측 점수는 추정값입니다</div>
                   )}
                   <div style={{ fontSize: 12, color: C.goldDim, marginTop: 6 }}>{r.est}</div>
+                  {/* 빠른 담기: 자세히 펼치지 않아도 위시리스트로 */}
+                  {!recDone[r.name] && (
+                    <button onClick={(ev) => { ev.stopPropagation(); saveFromRec(r, null, "wishlist"); }}
+                      style={{ marginTop: 10, padding: "8px 14px", background: "transparent",
+                        color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 8,
+                        fontSize: 12, cursor: "pointer" }}>
+                      ✧ 위시리스트에 담기
+                    </button>
+                  )}
+                  {recDone[r.name] && (
+                    <div style={{ marginTop: 10, fontSize: 12, color: C.gold }}>
+                      ✓ {recDone[r.name].status === "wishlist" ? "위시리스트에 담음"
+                        : `평가 완료 (${recDone[r.name].score != null ? recDone[r.name].score + "점" : "예측치"})`}
+                    </div>
+                  )}
                 </div>
 
                 {open && d && !d.error && (
