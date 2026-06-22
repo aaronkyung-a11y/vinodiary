@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.45";
+const APP_VERSION = "v0.47";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -170,20 +170,26 @@ function AxisBars({ axes }) {
   );
 }
 
-function ScoreRing({ value, size = 64 }) {
+function ScoreRing({ value, size = 64, predicted = false }) {
   const r = size / 2 - 5;
   const circ = 2 * Math.PI * r;
   const pct = Math.max(0, Math.min(100, value || 0)) / 100;
+  // 예측 점수는 청록빛 은색, 실제 내 점수는 금색으로 구분
+  const ringColor = predicted ? "#6FA8B5" : C.gold;
   return (
     <svg width={size} height={size} style={{ flexShrink: 0 }}>
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={C.line} strokeWidth="4" />
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={C.gold} strokeWidth="4"
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={ringColor} strokeWidth="4"
         strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)} strokeLinecap="round"
         transform={`rotate(-90 ${size / 2} ${size / 2})`} />
-      <text x="50%" y="52%" textAnchor="middle" dominantBaseline="middle"
+      <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle"
         fill={C.text} fontSize={size * 0.28} fontWeight="600" fontFamily="Georgia, serif">
         {value ?? "–"}
       </text>
+      {predicted && (
+        <text x="50%" y="72%" textAnchor="middle" dominantBaseline="middle"
+          fill="#6FA8B5" fontSize={size * 0.14} fontFamily="system-ui">예측</text>
+      )}
     </svg>
   );
 }
@@ -1822,7 +1828,7 @@ function App() {
               <div style={{ marginTop: 18, background: C.panel, border: `1px solid ${C.line}`,
                 borderRadius: 16, padding: 18 }}>
                 <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-                  <ScoreRing value={result.predictedScore} />
+                  <ScoreRing value={result.predictedScore} predicted={true} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1 }}>
                       {result.kind === "whisky" ? "WHISKY" : "WINE"} · 예측 선호도
@@ -2075,7 +2081,7 @@ function App() {
                 <div style={{ display: "flex", gap: 12 }}>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center",
                     flexShrink: 0, gap: 3 }}>
-                    <ScoreRing value={e.myScore ?? e.predictedScore} size={54} />
+                    <ScoreRing value={e.myScore ?? e.predictedScore} size={54} predicted={e.myScore == null} />
                     {(e.myScore != null || e.predictedScore != null) && (
                       <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
                         color: e.myScore != null ? C.gold : C.sub }}>
