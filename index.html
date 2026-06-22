@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.44";
+const APP_VERSION = "v0.45";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -1831,9 +1831,6 @@ function App() {
                       {result.name}
                       <OwnedBadge name={result.name} />
                     </div>
-                    {result.nameKo && result.nameKo !== result.name && (
-                      <div style={{ fontSize: 12, color: C.sub, marginTop: 1 }}>{result.nameKo}</div>
-                    )}
                     {result.nameKo && result.nameKo !== result.name && (
                       <div style={{ fontSize: 12, color: C.sub, marginTop: 1 }}>{result.nameKo}</div>
                     )}
