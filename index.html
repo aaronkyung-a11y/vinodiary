@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.48";
+const APP_VERSION = "v0.49";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -230,6 +230,7 @@ function App() {
   const [sortBy, setSortBy] = useState("recent"); // recent | score
   const [analyzeMode, setAnalyzeMode] = useState("single"); // single | menu
   const [analyzeFor, setAnalyzeFor] = useState("me"); // 분석 기준 평가자: me | 친구이름
+  const [menuFor, setMenuFor] = useState("me"); // 메뉴판 분석 기준 평가자
   const [userName, setUserName] = useState(() => {
     try { return localStorage.getItem(NAME_LS) || ""; } catch (e) { return ""; }
   });
@@ -760,7 +761,7 @@ function App() {
     setMenuResult(null);
     setMenuDone({});
     try {
-      const r = await api({ action: "analyzeMenu", text, imageData });
+      const r = await api({ action: "analyzeMenu", text, imageData, forWhom: menuFor });
       if (r.error) throw new Error(r.error);
       if (!r.items || r.items.length === 0) {
         setError("사진에서 술을 읽지 못했어요. 더 선명하게 찍거나 리스트를 텍스트로 붙여넣어 보세요.");
@@ -1693,6 +1694,29 @@ function App() {
                 </div>
               </div>
             )}
+            {analyzeMode === "menu" && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 6 }}>
+                  누구 취향으로 골라줄까요?
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {[["me", myLabel]].concat(raters.map((n) => [n, n])).map(([k, label]) => {
+                    const sel = menuFor === k;
+                    return (
+                      <button key={k} onClick={() => setMenuFor(k)}
+                        style={{ padding: "6px 14px", fontSize: 13, borderRadius: 16,
+                          background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
+                          border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer",
+                          fontWeight: sel ? 700 : 400 }}>{label}</button>
+                    );
+                  })}
+                  <button onClick={() => addFriend((nm) => setMenuFor(nm))}
+                    style={{ padding: "6px 14px", fontSize: 13, borderRadius: 16,
+                      background: "transparent", color: C.goldDim, border: `1px dashed ${C.goldDim}`,
+                      cursor: "pointer" }}>+ 친구</button>
+                </div>
+              </div>
+            )}
             {imagePreview ? (
               <div style={{ position: "relative", marginBottom: 14, textAlign: "center" }}>
                 <img src={imagePreview} alt="" style={{ maxHeight: 260, borderRadius: 12,
@@ -1786,6 +1810,9 @@ function App() {
                   <div style={{ fontSize: 12, color: C.sub, marginBottom: 12, lineHeight: 1.5,
                     fontStyle: "italic" }}>{menuResult.note}</div>
                 )}
+                <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 10, letterSpacing: 1 }}>
+                  {(menuFor === "me" ? myLabel : menuFor)} 취향 기준 · 예측 점수순
+                </div>
                 {menuResult.items.map((it, i) => {
                   const top3 = i < 3;
                   return (
