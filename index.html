@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.47";
+const APP_VERSION = "v0.48";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -373,6 +373,18 @@ function App() {
 
   // 내 표시 이름(빈 값이면 "나")
   const myLabel = userName.trim() || "나";
+
+  // 어디서나 친구 추가: 이름을 입력받아 raters에 등록. onAdded(name)으로 선택까지 연결 가능.
+  function addFriend(onAdded) {
+    const nm = window.prompt("추가할 친구 이름을 입력하세요");
+    if (!nm || !nm.trim()) return;
+    const name = nm.trim();
+    if (name === "나" || name === myLabel) { showToast("그건 본인 이름이에요", "error"); return; }
+    if (raters.includes(name)) { showToast("이미 있는 친구예요", "error"); if (onAdded) onAdded(name); return; }
+    setRaters((prev) => [...prev, name]);
+    showToast(`'${name}' 추가됨`, "done");
+    if (onAdded) onAdded(name);
+  }
 
   // Drive 이미지 표시 실패 시 다른 형식으로 폴백 후 그래도 실패하면 숨김
   function imgFallback(ev) {
@@ -1360,19 +1372,21 @@ function App() {
             {composing && (
               <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14,
                 padding: 14, marginBottom: 16 }}>
-                {raters.length > 0 && (
-                  <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-                    {[["me", myLabel]].concat(raters.map((n) => [n, n])).map(([k, label]) => {
-                      const sel = postAuthor === k;
-                      return (
-                        <button key={k} onClick={() => setPostAuthor(k)}
-                          style={{ padding: "5px 12px", fontSize: 12, borderRadius: 14,
-                            background: sel ? C.gold : C.panel2, color: sel ? "#1B160C" : C.sub,
-                            border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer" }}>{label}</button>
-                      );
-                    })}
-                  </div>
-                )}
+                <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                  {[["me", myLabel]].concat(raters.map((n) => [n, n])).map(([k, label]) => {
+                    const sel = postAuthor === k;
+                    return (
+                      <button key={k} onClick={() => setPostAuthor(k)}
+                        style={{ padding: "5px 12px", fontSize: 12, borderRadius: 14,
+                          background: sel ? C.gold : C.panel2, color: sel ? "#1B160C" : C.sub,
+                          border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer" }}>{label}</button>
+                    );
+                  })}
+                  <button onClick={() => addFriend((nm) => setPostAuthor(nm))}
+                    style={{ padding: "5px 12px", fontSize: 12, borderRadius: 14,
+                      background: "transparent", color: C.goldDim, border: `1px dashed ${C.goldDim}`,
+                      cursor: "pointer" }}>+ 친구</button>
+                </div>
                 {postImagePreview ? (
                   <div style={{ position: "relative", marginBottom: 10, textAlign: "center" }}>
                     <img src={postImagePreview} alt="" style={{ maxHeight: 260, borderRadius: 10,
@@ -1515,19 +1529,21 @@ function App() {
                         기록 수정
                       </div>
                       {/* 작성자 */}
-                      {raters.length > 0 && (
-                        <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-                          {[["me", myLabel]].concat(raters.map((n) => [n, n])).map(([k, label]) => {
-                            const sel = editAuthor === k;
-                            return (
-                              <button key={k} onClick={() => setEditAuthor(k)}
-                                style={{ padding: "5px 12px", fontSize: 12, borderRadius: 14,
-                                  background: sel ? C.gold : C.panel2, color: sel ? "#1B160C" : C.sub,
-                                  border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer" }}>{label}</button>
-                            );
-                          })}
-                        </div>
-                      )}
+                      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                        {[["me", myLabel]].concat(raters.map((n) => [n, n])).map(([k, label]) => {
+                          const sel = editAuthor === k;
+                          return (
+                            <button key={k} onClick={() => setEditAuthor(k)}
+                              style={{ padding: "5px 12px", fontSize: 12, borderRadius: 14,
+                                background: sel ? C.gold : C.panel2, color: sel ? "#1B160C" : C.sub,
+                                border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer" }}>{label}</button>
+                          );
+                        })}
+                        <button onClick={() => addFriend((nm) => setEditAuthor(nm))}
+                          style={{ padding: "5px 12px", fontSize: 12, borderRadius: 14,
+                            background: "transparent", color: C.goldDim, border: `1px dashed ${C.goldDim}`,
+                            cursor: "pointer" }}>+ 친구</button>
+                      </div>
                       {/* 사진 */}
                       {editImagePreview ? (
                         <div style={{ position: "relative", marginBottom: 10, textAlign: "center" }}>
@@ -1654,7 +1670,7 @@ function App() {
                 );
               })}
             </div>
-            {analyzeMode === "single" && (raters.length > 0) && (
+            {analyzeMode === "single" && (
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 6 }}>
                   누구 취향으로 분석할까요?
@@ -1670,6 +1686,10 @@ function App() {
                           fontWeight: sel ? 700 : 400 }}>{label}</button>
                     );
                   })}
+                  <button onClick={() => addFriend((nm) => setAnalyzeFor(nm))}
+                    style={{ padding: "6px 14px", fontSize: 13, borderRadius: 16,
+                      background: "transparent", color: C.goldDim, border: `1px dashed ${C.goldDim}`,
+                      cursor: "pointer" }}>+ 친구</button>
                 </div>
               </div>
             )}
@@ -2267,11 +2287,8 @@ function App() {
                             </button>
                           );
                         })}
-                        <button onClick={() => {
-                          const nm = (prompt("친구 이름을 입력하세요") || "").trim();
-                          if (nm) { setRatingFor((p) => ({ ...p, [e.id]: nm }));
-                            if (!raters.includes(nm) && nm !== "나") setRaters((prev) => [...prev, nm]); }
-                        }} style={{ padding: "4px 10px", fontSize: 12, borderRadius: 14,
+                        <button onClick={() => addFriend((nm) => setRatingFor((p) => ({ ...p, [e.id]: nm })))}
+                          style={{ padding: "4px 10px", fontSize: 12, borderRadius: 14,
                           background: "transparent", color: C.gold, border: `1px dashed ${C.goldDim}`,
                           cursor: "pointer" }}>+ 친구</button>
                       </div>
@@ -2345,23 +2362,24 @@ function App() {
                   style={{ flex: 1, background: C.panel2, border: `1px solid ${C.line}`,
                     borderRadius: 8, color: C.text, padding: "8px 10px", fontSize: 13 }} />
               </div>
-              {raters.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {raters.map((n) => (
-                    <button key={n} onClick={() => renameFriend(n)}
-                      style={{ padding: "6px 12px", fontSize: 12, borderRadius: 14,
-                        background: C.panel2, color: C.text, border: `1px solid ${C.line}`,
-                        cursor: "pointer" }}>
-                      {n} <span style={{ color: C.goldDim }}>✎</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {raters.length > 0 && (
-                <div style={{ fontSize: 11, color: C.sub, marginTop: 6 }}>
-                  친구 이름을 누르면 바꿀 수 있어요(이전 기록도 함께 변경).
-                </div>
-              )}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {raters.map((n) => (
+                  <button key={n} onClick={() => renameFriend(n)}
+                    style={{ padding: "6px 12px", fontSize: 12, borderRadius: 14,
+                      background: C.panel2, color: C.text, border: `1px solid ${C.line}`,
+                      cursor: "pointer" }}>
+                    {n} <span style={{ color: C.goldDim }}>✎</span>
+                  </button>
+                ))}
+                <button onClick={() => addFriend()}
+                  style={{ padding: "6px 12px", fontSize: 12, borderRadius: 14,
+                    background: "transparent", color: C.goldDim, border: `1px dashed ${C.goldDim}`,
+                    cursor: "pointer" }}>+ 친구 추가</button>
+              </div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 6 }}>
+                {raters.length > 0 ? "친구 이름을 누르면 바꿀 수 있어요(이전 기록도 함께 변경)."
+                  : "친구를 추가하면 함께 마신 술을 각자 점수로 기록할 수 있어요."}
+              </div>
             </div>
             {/* 데이터 관리 */}
             {entries.length > 0 && (
@@ -2462,6 +2480,10 @@ function App() {
                   </button>
                 );
               })}
+              <button onClick={() => addFriend((nm) => setRecFor(nm))}
+                style={{ padding: "7px 14px", fontSize: 13, borderRadius: 16,
+                  background: "transparent", color: C.goldDim, border: `1px dashed ${C.goldDim}`,
+                  cursor: "pointer" }}>+ 친구</button>
             </div>
             <button onClick={loadRecs} disabled={recLoading}
               style={{ width: "100%", padding: 14, background: C.gold, color: "#1B160C",
