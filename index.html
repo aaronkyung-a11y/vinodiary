@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.49";
+const APP_VERSION = "v0.50";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -1760,14 +1760,16 @@ function App() {
                 style={{ width: "100%", padding: 14, background: C.gold, color: "#1B160C",
                   border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
                   cursor: "pointer", opacity: menuLoading ? 0.6 : 1 }}>
-                {menuLoading ? "읽는 중…" : "메뉴판에서 내 취향 찾기"}
+                {menuLoading ? "읽는 중…" :
+                  ((menuFor === "me" || menuFor === "나") ? "메뉴판에서 내 취향 찾기" : `메뉴판에서 ${menuFor} 취향 찾기`)}
               </button>
             ) : (
             <button onClick={onAnalyze} disabled={analyzing || candLoading}
               style={{ width: "100%", padding: 14, background: C.gold, color: "#1B160C",
                 border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
                 cursor: "pointer", opacity: (analyzing || candLoading) ? 0.6 : 1 }}>
-              {candLoading ? "분석 중…" : analyzing ? "분석 중…" : "내 취향으로 분석하기"}
+              {candLoading ? "분석 중…" : analyzing ? "분석 중…" :
+                ((analyzeFor === "me" || analyzeFor === "나") ? "내 취향으로 분석하기" : `${analyzeFor} 취향으로 분석하기`)}
             </button>
             )}
 
