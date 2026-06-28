@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.53";
+const APP_VERSION = "v0.54";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -229,7 +229,9 @@ function App() {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("recent"); // recent | score
   const [analyzeMode, setAnalyzeMode] = useState("single"); // single | menu
-  const [analyzeFor, setAnalyzeFor] = useState("me"); // 분석 기준 평가자: me | 친구이름
+  const [analyzeFor, setAnalyzeFor] = useState("me"); // 분석 기준 평가자(메인): me | 친구이름
+  const [compareWith, setCompareWith] = useState([]); // 추가 비교 대상(점수 나란히)
+  const [raterScores, setRaterScores] = useState(null); // 비교 결과 [{rater,score,why,confidence}]
   const [menuFor, setMenuFor] = useState(["me"]); // 메뉴판 분석 기준 평가자(다중 선택)
   // 메뉴 평가자 토글: "다 같이"는 단독, 개별은 복수 선택
   function toggleMenuFor(k) {
@@ -758,10 +760,22 @@ function App() {
     setAnalyzing(true);
     setResult(null);
     setCandidates(null);
+    setRaterScores(null);
     try {
       const r = await api({ action: "analyze", text: name + (kind ? " (" + kind + ")" : ""), forWhom: analyzeFor });
       if (r.error) throw new Error(r.error);
       setResult(r);
+      // 비교 대상이 있으면 각자 점수도 받아 나란히 표시 (메인 평가자 포함해 한 화면에)
+      const others = compareWith.filter((x) => x !== analyzeFor);
+      if (others.length > 0) {
+        // 메인 평가자 + 비교 대상 모두 한 번에 점수 비교
+        const allRaters = [analyzeFor, ...others];
+        try {
+          const sr = await api({ action: "scoreForRaters",
+            name: r.name || name, kind: r.kind || kind, raters: allRaters });
+          if (sr && sr.scores) setRaterScores(sr.scores);
+        } catch (e2) { /* 비교 실패는 메인 결과에 영향 없음 */ }
+      }
     } catch (e) {
       setError("분석에 실패했어요. 다시 시도해 주세요.");
       console.error(e);
@@ -1713,6 +1727,30 @@ function App() {
                       background: "transparent", color: C.goldDim, border: `1px dashed ${C.goldDim}`,
                       cursor: "pointer" }}>+ 친구</button>
                 </div>
+                {raters.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 6 }}>
+                      함께 비교 <span style={{ color: C.sub }}>(선택, 점수를 나란히 보여줘요)</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {[["me", myLabel]].concat(raters.map((n) => [n, n]))
+                        .filter(([k]) => k !== analyzeFor)
+                        .map(([k, label]) => {
+                          const sel = compareWith.includes(k);
+                          return (
+                            <button key={k} onClick={() => setCompareWith((prev) =>
+                              prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k])}
+                              style={{ padding: "5px 12px", fontSize: 12, borderRadius: 14,
+                                background: sel ? C.panel2 : "transparent",
+                                color: sel ? C.gold : C.sub,
+                                border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer" }}>
+                              {sel ? "✓ " : ""}{label}
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             {analyzeMode === "menu" && (
@@ -1937,6 +1975,40 @@ function App() {
                 <div style={{ marginTop: 6, fontSize: 11, color: C.sub }}>
                   신뢰도: {result.confidence} · {(analyzeFor === "me" || analyzeFor === "나") ? "내" : analyzeFor + "의"} 예측 점수(추정)
                 </div>
+                {raterScores && raterScores.length > 0 && (
+                  <div style={{ marginTop: 14, padding: 12, background: C.panel2,
+                    borderRadius: 10, border: `1px solid ${C.line}` }}>
+                    <div style={{ fontSize: 11, color: C.gold, letterSpacing: 1, marginBottom: 10 }}>
+                      평가자별 예측 비교
+                    </div>
+                    {raterScores.slice().sort((a, b) => (b.score || 0) - (a.score || 0)).map((rs) => {
+                      const label = (rs.rater === "me" || rs.rater === "나") ? myLabel : rs.rater;
+                      const pct = Math.max(0, Math.min(100, rs.score || 0));
+                      return (
+                        <div key={rs.rater} style={{ marginBottom: 10 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between",
+                            alignItems: "baseline", marginBottom: 3 }}>
+                            <span style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{label}</span>
+                            <span style={{ fontSize: 14, color: C.gold, fontFamily: "Georgia, serif" }}>
+                              {rs.score}{rs.confidence === "low" && (
+                                <span style={{ fontSize: 10, color: C.sub }}> ?</span>
+                              )}
+                            </span>
+                          </div>
+                          <div style={{ height: 6, background: C.line, borderRadius: 3, overflow: "hidden" }}>
+                            <div style={{ width: pct + "%", height: "100%", background: C.gold }} />
+                          </div>
+                          {rs.why && (
+                            <div style={{ fontSize: 11, color: C.sub, marginTop: 3, lineHeight: 1.4 }}>{rs.why}</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>
+                      ? = 평가 기록이 적어 신뢰도 낮음
+                    </div>
+                  </div>
+                )}
                 {result.axes && (
                   <div style={{ marginTop: 12 }}>
                     <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>특성</span>
