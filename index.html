@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.60";
+const APP_VERSION = "v0.61";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -395,7 +395,7 @@ function App() {
   async function shareToFeed(e) {
     const isMe = true; // 셀러 항목은 내 기록 기준으로 공유
     const wine = {
-      name: e.name, kind: e.kind, axes: e.axes || null,
+      name: e.name, nameKo: e.nameKo || "", kind: e.kind, axes: e.axes || null,
       predictedScore: e.predictedScore ?? null,
       myScore: e.myScore ?? null, author: "me",
     };
@@ -1797,7 +1797,7 @@ function App() {
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                               <span style={{ width: 7, height: 7, borderRadius: "50%",
                                 background: p.wine.kind === "whisky" ? C.whisky : C.wine }} />
-                              <span style={{ fontFamily: "Georgia, serif", fontSize: 14 }}>{p.wine.name}</span>
+                              <span style={{ fontFamily: "Georgia, serif", fontSize: 14 }}>{p.wine.name}{p.wine.nameKo && p.wine.nameKo !== p.wine.name ? " · " + p.wine.nameKo : ""}</span>
                             </div>
                             {(p.wine.myScore != null) && (
                               <span style={{ fontSize: 12, color: C.gold, fontWeight: 700 }}>{p.wine.myScore}점</span>
