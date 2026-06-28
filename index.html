@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.58";
+const APP_VERSION = "v0.59";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -454,19 +454,20 @@ function App() {
       || (userName.trim() && k === userName.trim());
   }
 
-  // 어디서나 친구 추가: 친구=프로필이므로 프로필 목록에도 함께 등록.
+  // 어디서나 친구 추가: 친구=프로필. 백엔드에 양방향 관계 저장(현재 프로필 ↔ 새 친구).
   function addFriend(onAdded) {
     const nm = window.prompt("추가할 사람 이름을 입력하세요 (친구이자 프로필이 됩니다)");
     if (!nm || !nm.trim()) return;
     const name = nm.trim();
     if (isSelfKey(name)) { showToast("그건 현재 프로필 본인이에요", "error"); return; }
     if (!raters.includes(name)) setRaters((prev) => [...prev, name]);
-    // 프로필 목록에도 추가(친구=프로필 통합)
     if (!profiles.includes(name)) {
       const next = [...profiles, name];
       setProfilesState(next);
       saveProfiles(next);
     }
+    // 양방향 친구 관계 저장: 현재 프로필 ↔ name
+    api({ action: "addFriendLink", a: curProfile, b: name }).catch(() => {});
     showToast(`'${name}' 추가됨`, "done");
     if (onAdded) onAdded(name);
   }
@@ -740,7 +741,7 @@ function App() {
       const r = await fetch(url + "?action=list&owner=" + encodeURIComponent(prof)).then((x) => x.json());
       const list = r.entries || [];
       setEntries(list);
-      // 통합 사람 목록(프로필=친구): 백엔드 listPeople
+      // 통합 사람 목록(전체 프로필 후보)
       let people = [];
       try {
         const pr = await api({ action: "listPeople", owner: prof });
@@ -751,14 +752,25 @@ function App() {
         list.forEach((e) => { if (e.scores) Object.keys(e.scores).forEach((n) => (set[n] = true)); });
         people = Object.keys(set);
       }
+      // 현재 프로필의 친구(양방향 관계 기반)
+      let myFriends = [];
+      try {
+        const fr = await api({ action: "friendsOf", name: prof });
+        myFriends = (fr && fr.friends) ? fr.friends : [];
+      } catch (e) { /* 폴백: 아래 scores 기반 */ }
+      // 폴백: 관계가 없으면 현재 데이터의 scores 키 사용
+      if (!myFriends.length) {
+        const s = {};
+        list.forEach((e) => { if (e.scores) Object.keys(e.scores).forEach((n) => (s[n] = true)); });
+        myFriends = Object.keys(s);
+      }
       // 프로필 목록 = 통합 + 로컬 + 현재
       const allProfiles = Array.from(new Set([prof, ...getProfiles(), ...people])).filter(Boolean);
       setProfilesState(allProfiles);
       saveProfiles(allProfiles);
-      // 친구 목록 = 통합/로컬에서 '현재 프로필 본인' 제외 (prof 기준으로 정확히)
-      const friendPool = Array.from(new Set([...people, ...getProfiles()]));
+      // 친구 목록 = 현재 프로필의 친구에서 본인 제외
       const selfKeys = ["me", "나", prof, userName.trim()].filter(Boolean);
-      setRaters(friendPool.filter((p) => !selfKeys.includes(p)));
+      setRaters(myFriends.filter((p) => !selfKeys.includes(p)));
     } catch (e) {
       setError("기록을 불러오지 못했어요. API URL을 확인하세요.");
     } finally {
