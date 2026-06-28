@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.61";
+const APP_VERSION = "v0.62";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -578,7 +578,7 @@ function App() {
       const isMe = postAuthor === "me" || postAuthor === "나";
       // 술 정보(그래프용)
       const wine = postWine ? {
-        name: postWine.name, kind: postWine.kind, axes: postWine.axes || null,
+        name: postWine.name, nameKo: postWine.nameKo || "", kind: postWine.kind, axes: postWine.axes || null,
         predictedScore: postWine.predictedScore ?? null,
         myScore: postWineScore ?? null,
         author: postAuthor,
