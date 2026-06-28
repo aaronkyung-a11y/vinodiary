@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.50";
+const APP_VERSION = "v0.53";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -230,7 +230,26 @@ function App() {
   const [sortBy, setSortBy] = useState("recent"); // recent | score
   const [analyzeMode, setAnalyzeMode] = useState("single"); // single | menu
   const [analyzeFor, setAnalyzeFor] = useState("me"); // 분석 기준 평가자: me | 친구이름
-  const [menuFor, setMenuFor] = useState("me"); // 메뉴판 분석 기준 평가자
+  const [menuFor, setMenuFor] = useState(["me"]); // 메뉴판 분석 기준 평가자(다중 선택)
+  // 메뉴 평가자 토글: "다 같이"는 단독, 개별은 복수 선택
+  function toggleMenuFor(k) {
+    setMenuFor((prev) => {
+      if (k === "common") return ["common"];
+      let next = prev.filter((x) => x !== "common"); // 개별 고르면 '다 같이' 해제
+      if (next.includes(k)) {
+        next = next.filter((x) => x !== k);
+        if (next.length === 0) next = ["me"]; // 최소 1명
+      } else {
+        next = [...next, k];
+      }
+      return next;
+    });
+  }
+  // menuFor 배열 → 사람이 읽는 라벨
+  function menuForLabel() {
+    if (menuFor.includes("common")) return "다 같이";
+    return menuFor.map((k) => (k === "me" || k === "나") ? myLabel : k).join(", ");
+  }
   const [userName, setUserName] = useState(() => {
     try { return localStorage.getItem(NAME_LS) || ""; } catch (e) { return ""; }
   });
@@ -761,7 +780,9 @@ function App() {
     setMenuResult(null);
     setMenuDone({});
     try {
-      const r = await api({ action: "analyzeMenu", text, imageData, forWhom: menuFor });
+      const fw = menuFor.includes("common") ? "common"
+        : (menuFor.length === 1 ? menuFor[0] : menuFor);
+      const r = await api({ action: "analyzeMenu", text, imageData, forWhom: fw });
       if (r.error) throw new Error(r.error);
       if (!r.items || r.items.length === 0) {
         setError("사진에서 술을 읽지 못했어요. 더 선명하게 찍거나 리스트를 텍스트로 붙여넣어 보세요.");
@@ -1697,20 +1718,28 @@ function App() {
             {analyzeMode === "menu" && (
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 6 }}>
-                  누구 취향으로 골라줄까요?
+                  누구 취향으로 골라줄까요? <span style={{ color: C.sub }}>(여러 명 선택 가능)</span>
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <button onClick={() => toggleMenuFor("common")}
+                    style={{ padding: "6px 14px", fontSize: 13, borderRadius: 16,
+                      background: menuFor.includes("common") ? C.gold : C.panel,
+                      color: menuFor.includes("common") ? "#1B160C" : C.sub,
+                      border: `1px solid ${menuFor.includes("common") ? C.gold : C.line}`,
+                      cursor: "pointer", fontWeight: menuFor.includes("common") ? 700 : 400 }}>다 같이</button>
                   {[["me", myLabel]].concat(raters.map((n) => [n, n])).map(([k, label]) => {
-                    const sel = menuFor === k;
+                    const sel = menuFor.includes(k);
                     return (
-                      <button key={k} onClick={() => setMenuFor(k)}
+                      <button key={k} onClick={() => toggleMenuFor(k)}
                         style={{ padding: "6px 14px", fontSize: 13, borderRadius: 16,
                           background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
                           border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer",
-                          fontWeight: sel ? 700 : 400 }}>{label}</button>
+                          fontWeight: sel ? 700 : 400 }}>
+                        {sel && !menuFor.includes("common") ? "✓ " : ""}{label}
+                      </button>
                     );
                   })}
-                  <button onClick={() => addFriend((nm) => setMenuFor(nm))}
+                  <button onClick={() => addFriend((nm) => toggleMenuFor(nm))}
                     style={{ padding: "6px 14px", fontSize: 13, borderRadius: 16,
                       background: "transparent", color: C.goldDim, border: `1px dashed ${C.goldDim}`,
                       cursor: "pointer" }}>+ 친구</button>
@@ -1761,7 +1790,9 @@ function App() {
                   border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
                   cursor: "pointer", opacity: menuLoading ? 0.6 : 1 }}>
                 {menuLoading ? "읽는 중…" :
-                  ((menuFor === "me" || menuFor === "나") ? "메뉴판에서 내 취향 찾기" : `메뉴판에서 ${menuFor} 취향 찾기`)}
+                  (menuFor.length === 1 && (menuFor[0] === "me" || menuFor[0] === "나")
+                    ? "메뉴판에서 내 취향 찾기"
+                    : `메뉴판에서 ${menuForLabel()} 취향 찾기`)}
               </button>
             ) : (
             <button onClick={onAnalyze} disabled={analyzing || candLoading}
@@ -1813,7 +1844,7 @@ function App() {
                     fontStyle: "italic" }}>{menuResult.note}</div>
                 )}
                 <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 10, letterSpacing: 1 }}>
-                  {(menuFor === "me" ? myLabel : menuFor)} 취향 기준 · 예측 점수순
+                  {menuForLabel()} 취향 기준 · 예측 점수순
                 </div>
                 {menuResult.items.map((it, i) => {
                   const top3 = i < 3;
@@ -1844,6 +1875,12 @@ function App() {
                             <div style={{ fontSize: 11, color: C.sub, marginTop: -1, marginBottom: 2 }}>{it.nameKo}</div>
                           )}
                           <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.4 }}>{it.why}</div>
+                          {it.where && (
+                            <div style={{ fontSize: 11, color: C.goldDim, marginTop: 3,
+                              display: "flex", alignItems: "center", gap: 3 }}>
+                              <span>📍</span>{it.where}
+                            </div>
+                          )}
                         </div>
                       </div>
                       {menuDone[it.name] ? (
