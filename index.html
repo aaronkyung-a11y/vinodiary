@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.55";
+const APP_VERSION = "v0.56";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -78,19 +78,43 @@ function setApiUrl(v) {
   _memUrl = v;
   try { localStorage.setItem(API_KEY_LS, v); } catch (e) {}
 }
+const PROFILE_LS = "vinodiary:profile"; // 현재 선택된 프로필명
+const PROFILES_LS = "vinodiary:profiles"; // 프로필 목록 JSON
+const DEFAULT_PROFILE = "호빈";
+function getProfile() {
+  try { return localStorage.getItem(PROFILE_LS) || DEFAULT_PROFILE; }
+  catch (e) { return DEFAULT_PROFILE; }
+}
+function setProfile(v) {
+  try { localStorage.setItem(PROFILE_LS, v); } catch (e) {}
+}
+function getProfiles() {
+  try {
+    const raw = localStorage.getItem(PROFILES_LS);
+    const arr = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(arr) && arr.length) return arr;
+  } catch (e) {}
+  return [DEFAULT_PROFILE];
+}
+function saveProfiles(arr) {
+  try { localStorage.setItem(PROFILES_LS, JSON.stringify(arr)); } catch (e) {}
+}
+
 async function api(payload) {
   const url = getApiUrl();
   if (!url) throw new Error("API URL이 설정되지 않았습니다.");
+  // 현재 프로필을 owner로 자동 주입(이미 지정된 경우 유지)
+  const withOwner = (payload && payload.owner) ? payload : { ...payload, owner: getProfile() };
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" }, // CORS 프리플라이트 회피
-    body: JSON.stringify(payload),
+    body: JSON.stringify(withOwner),
   });
   return res.json();
 }
 async function apiList() {
   const url = getApiUrl();
-  const res = await fetch(url + "?action=list");
+  const res = await fetch(url + "?action=list&owner=" + encodeURIComponent(getProfile()));
   return res.json();
 }
 
@@ -255,6 +279,9 @@ function App() {
   const [userName, setUserName] = useState(() => {
     try { return localStorage.getItem(NAME_LS) || ""; } catch (e) { return ""; }
   });
+  const [curProfile, setCurProfileState] = useState(() => getProfile()); // 현재 프로필
+  const [profiles, setProfilesState] = useState(() => getProfiles()); // 프로필 목록
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [companions, setCompanions] = useState(""); // 함께한 사람
   const [note, setNote] = useState(""); // 메모
   const [posts, setPosts] = useState(null); // 피드 포스트 목록
@@ -395,6 +422,32 @@ function App() {
 
   // 내 표시 이름(빈 값이면 "나")
   const myLabel = userName.trim() || "나";
+
+  // 프로필 전환: 저장 후 데이터 다시 로드
+  function switchProfile(p) {
+    if (p === curProfile) { setProfileMenuOpen(false); return; }
+    setProfile(p);            // localStorage
+    setCurProfileState(p);       // state
+    setProfileMenuOpen(false);
+    // 해당 프로필 데이터로 갈아끼우기
+    setEntries(null);
+    setPosts(null);
+    setRaters([]);
+    refresh();
+    if (tab === "feed") loadPosts();
+    showToast(`'${p}' 프로필로 전환`, "done");
+  }
+  // 새 프로필 추가
+  function addProfile() {
+    const nm = window.prompt("새 프로필 이름을 입력하세요");
+    if (!nm || !nm.trim()) return;
+    const name = nm.trim();
+    if (profiles.includes(name)) { switchProfile(name); return; }
+    const next = [...profiles, name];
+    setProfilesState(next);
+    saveProfiles(next);
+    switchProfile(name);
+  }
   // 어떤 평가자 키가 '본인'을 가리키는지 (me / 나 / 설정한 본인 이름 모두 본인)
   function isSelfKey(k) {
     return k === "me" || k === "나" || (userName.trim() && k === userName.trim());
@@ -1367,11 +1420,43 @@ function App() {
               marginLeft: 8, letterSpacing: 0, verticalAlign: "middle" }}>{APP_VERSION}</span>
           </h1>
         </div>
-        <button onClick={refresh} style={{ background: "none", border: `1px solid ${C.line}`,
-          color: syncing ? C.gold : C.sub, borderRadius: 8, padding: "6px 10px", fontSize: 12,
-          cursor: "pointer" }}>
-          {syncing ? "동기화…" : "↻ 새로고침"}
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+          <button onClick={refresh} style={{ background: "none", border: `1px solid ${C.line}`,
+            color: syncing ? C.gold : C.sub, borderRadius: 8, padding: "6px 10px", fontSize: 12,
+            cursor: "pointer" }}>
+            {syncing ? "동기화…" : "↻ 새로고침"}
+          </button>
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setProfileMenuOpen((v) => !v)}
+              style={{ background: C.panel2, border: `1px solid ${C.gold}`,
+                color: C.gold, borderRadius: 14, padding: "5px 12px", fontSize: 12,
+                cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ opacity: 0.7 }}>프로필</span> {curProfile} ▾
+            </button>
+            {profileMenuOpen && (
+              <div style={{ position: "absolute", right: 0, top: "110%", zIndex: 50,
+                background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10,
+                padding: 6, minWidth: 140, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+                {profiles.map((p) => (
+                  <button key={p} onClick={() => switchProfile(p)}
+                    style={{ display: "block", width: "100%", textAlign: "left",
+                      background: p === curProfile ? C.panel2 : "transparent",
+                      border: "none", color: p === curProfile ? C.gold : C.text,
+                      borderRadius: 6, padding: "8px 10px", fontSize: 13, cursor: "pointer" }}>
+                    {p === curProfile ? "✓ " : ""}{p}
+                  </button>
+                ))}
+                <div style={{ borderTop: `1px solid ${C.line}`, margin: "4px 0" }} />
+                <button onClick={addProfile}
+                  style={{ display: "block", width: "100%", textAlign: "left",
+                    background: "transparent", border: "none", color: C.goldDim,
+                    borderRadius: 6, padding: "8px 10px", fontSize: 13, cursor: "pointer" }}>
+                  + 새 프로필
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </header>
 
       <main style={{ padding: "18px 16px", maxWidth: 560, margin: "0 auto" }}>
