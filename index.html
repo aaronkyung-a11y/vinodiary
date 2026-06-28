@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.57";
+const APP_VERSION = "v0.58";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -426,15 +426,15 @@ function App() {
   // 프로필 전환: 저장 후 데이터 다시 로드
   function switchProfile(p) {
     if (p === curProfile) { setProfileMenuOpen(false); return; }
-    setProfile(p);            // localStorage
-    setCurProfileState(p);       // state
+    setProfile(p);            // localStorage 먼저
+    setCurProfileState(p);    // state
     setProfileMenuOpen(false);
-    // 해당 프로필 데이터로 갈아끼우기
-    setEntries(null);
-    setPosts(null);
+    // null로 비우면 렌더가 .length에서 터지므로 빈 배열로
+    setEntries([]);
+    setPosts(null); // posts는 null 허용(로딩 표시), 단 피드 렌더에서 가드됨
     setRaters([]);
-    refresh();
-    if (tab === "feed") loadPosts();
+    refresh(p);                 // 전환할 프로필을 명시적으로 전달
+    if (tab === "feed") loadPosts(p);
     showToast(`'${p}' 프로필로 전환`, "done");
   }
   // 새 프로필 추가
@@ -488,9 +488,9 @@ function App() {
   }
 
   // 포스트 목록 로드
-  async function loadPosts() {
+  async function loadPosts(forProfile) {
     try {
-      const r = await api({ action: "listPosts" });
+      const r = await api({ action: "listPosts", owner: forProfile || curProfile });
       setPosts(Array.isArray(r.posts) ? r.posts : []);
     } catch (e) { setPosts([]); }
   }
@@ -732,31 +732,33 @@ function App() {
     }
   }
 
-  async function refresh() {
+  async function refresh(forProfile) {
+    const prof = forProfile || curProfile;
     setSyncing(true);
     try {
-      const r = await apiList();
+      const url = getApiUrl();
+      const r = await fetch(url + "?action=list&owner=" + encodeURIComponent(prof)).then((x) => x.json());
       const list = r.entries || [];
       setEntries(list);
       // 통합 사람 목록(프로필=친구): 백엔드 listPeople
       let people = [];
       try {
-        const pr = await api({ action: "listPeople" });
+        const pr = await api({ action: "listPeople", owner: prof });
         people = (pr && pr.people) ? pr.people : [];
-      } catch (e) { /* 실패 시 아래 폴백 */ }
-      // 폴백: 현재 entries의 scores 키 + 현재 프로필
+      } catch (e) { /* 폴백 */ }
       if (!people.length) {
         const set = {};
         list.forEach((e) => { if (e.scores) Object.keys(e.scores).forEach((n) => (set[n] = true)); });
         people = Object.keys(set);
       }
-      // 프로필 목록 = 통합 사람 목록 + 기존 로컬 프로필(빈 새 프로필 보존), 현재 프로필 포함
-      const allProfiles = Array.from(new Set([curProfile, ...getProfiles(), ...people])).filter(Boolean);
+      // 프로필 목록 = 통합 + 로컬 + 현재
+      const allProfiles = Array.from(new Set([prof, ...getProfiles(), ...people])).filter(Boolean);
       setProfilesState(allProfiles);
       saveProfiles(allProfiles);
-      // 친구 목록 = 통합 목록 + 로컬 프로필에서 '현재 프로필 본인'만 제외
+      // 친구 목록 = 통합/로컬에서 '현재 프로필 본인' 제외 (prof 기준으로 정확히)
       const friendPool = Array.from(new Set([...people, ...getProfiles()]));
-      setRaters(friendPool.filter((p) => !isSelfKey(p) && p !== curProfile));
+      const selfKeys = ["me", "나", prof, userName.trim()].filter(Boolean);
+      setRaters(friendPool.filter((p) => !selfKeys.includes(p)));
     } catch (e) {
       setError("기록을 불러오지 못했어요. API URL을 확인하세요.");
     } finally {
