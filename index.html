@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.59";
+const APP_VERSION = "v0.60";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -421,7 +421,7 @@ function App() {
   }
 
   // 내 표시 이름(빈 값이면 "나")
-  const myLabel = curProfile || userName.trim() || "나";
+  const myLabel = curProfile || "나";
 
   // 프로필 전환: 저장 후 데이터 다시 로드
   function switchProfile(p) {
@@ -448,10 +448,9 @@ function App() {
     saveProfiles(next);
     switchProfile(name);
   }
-  // 어떤 평가자 키가 '현재 프로필 본인'을 가리키는지 (me / 나 / 현재 프로필명 / 설정 이름)
+  // 어떤 키가 '현재 프로필 본인'을 가리키는지 (me / 나 / 현재 프로필명)
   function isSelfKey(k) {
-    return k === "me" || k === "나" || k === curProfile
-      || (userName.trim() && k === userName.trim());
+    return k === "me" || k === "나" || k === curProfile;
   }
 
   // 어디서나 친구 추가: 친구=프로필. 백엔드에 양방향 관계 저장(현재 프로필 ↔ 새 친구).
@@ -769,7 +768,7 @@ function App() {
       setProfilesState(allProfiles);
       saveProfiles(allProfiles);
       // 친구 목록 = 현재 프로필의 친구에서 본인 제외
-      const selfKeys = ["me", "나", prof, userName.trim()].filter(Boolean);
+      const selfKeys = ["me", "나", prof].filter(Boolean);
       setRaters(myFriends.filter((p) => !selfKeys.includes(p)));
     } catch (e) {
       setError("기록을 불러오지 못했어요. API URL을 확인하세요.");
@@ -1500,11 +1499,9 @@ function App() {
             {/* 헤더: 이름 + 태그라인 */}
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                <input value={userName} onChange={(e) => saveName(e.target.value)}
-                  placeholder="이름"
-                  style={{ flex: "0 1 auto", width: "auto", minWidth: 60, maxWidth: 220,
-                    background: "transparent", border: "none",
-                    color: C.text, padding: "2px 0", fontSize: 26, fontFamily: "Georgia, serif" }} />
+                <span style={{ fontSize: 26, fontFamily: "Georgia, serif", color: C.text }}>
+                  {myLabel}
+                </span>
                 <span style={{ fontSize: 13, color: C.goldDim, fontFamily: "Georgia, serif",
                   fontStyle: "italic" }}>the pour</span>
               </div>
@@ -2636,10 +2633,10 @@ function App() {
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                 <span style={{ fontSize: 12, color: C.sub, width: 40 }}>나</span>
-                <input value={userName} onChange={(e) => saveName(e.target.value)}
-                  placeholder="내 이름"
-                  style={{ flex: 1, background: C.panel2, border: `1px solid ${C.line}`,
-                    borderRadius: 8, color: C.text, padding: "8px 10px", fontSize: 13 }} />
+                <div style={{ flex: 1, background: C.panel2, border: `1px solid ${C.line}`,
+                  borderRadius: 8, color: C.gold, padding: "8px 10px", fontSize: 13 }}>
+                  {myLabel} <span style={{ color: C.sub, fontSize: 11 }}>(현재 프로필 · 헤더에서 전환)</span>
+                </div>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {raters.map((n) => (
