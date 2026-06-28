@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.54";
+const APP_VERSION = "v0.55";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -395,6 +395,10 @@ function App() {
 
   // 내 표시 이름(빈 값이면 "나")
   const myLabel = userName.trim() || "나";
+  // 어떤 평가자 키가 '본인'을 가리키는지 (me / 나 / 설정한 본인 이름 모두 본인)
+  function isSelfKey(k) {
+    return k === "me" || k === "나" || (userName.trim() && k === userName.trim());
+  }
 
   // 어디서나 친구 추가: 이름을 입력받아 raters에 등록. onAdded(name)으로 선택까지 연결 가능.
   function addFriend(onAdded) {
@@ -765,15 +769,26 @@ function App() {
       const r = await api({ action: "analyze", text: name + (kind ? " (" + kind + ")" : ""), forWhom: analyzeFor });
       if (r.error) throw new Error(r.error);
       setResult(r);
-      // 비교 대상이 있으면 각자 점수도 받아 나란히 표시 (메인 평가자 포함해 한 화면에)
-      const others = compareWith.filter((x) => x !== analyzeFor);
+      // 비교 대상에서 메인 평가자와 '본인 별칭'은 제외(본인이 me/이름으로 이중 등록되는 것 방지)
+      const mainIsSelf = isSelfKey(analyzeFor);
+      const others = compareWith.filter((x) => {
+        if (x === analyzeFor) return false;
+        if (mainIsSelf && isSelfKey(x)) return false; // 메인이 본인이면 본인 별칭 모두 제외
+        return true;
+      });
       if (others.length > 0) {
-        // 메인 평가자 + 비교 대상 모두 한 번에 점수 비교
-        const allRaters = [analyzeFor, ...others];
         try {
           const sr = await api({ action: "scoreForRaters",
-            name: r.name || name, kind: r.kind || kind, raters: allRaters });
-          if (sr && sr.scores) setRaterScores(sr.scores);
+            name: r.name || name, kind: r.kind || kind, raters: others });
+          const otherScores = (sr && sr.scores) ? sr.scores : [];
+          // 메인 평가자(위 분석 점수)를 비교 맨 앞에 직접 추가 — 별도 호출 없이 정확
+          const mainEntry = {
+            rater: analyzeFor,
+            score: r.predictedScore,
+            why: r.resembles || "",
+            confidence: r.confidence || "medium",
+          };
+          setRaterScores([mainEntry, ...otherScores]);
         } catch (e2) { /* 비교 실패는 메인 결과에 영향 없음 */ }
       }
     } catch (e) {
@@ -1733,8 +1748,14 @@ function App() {
                       함께 비교 <span style={{ color: C.sub }}>(선택, 점수를 나란히 보여줘요)</span>
                     </div>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {[["me", myLabel]].concat(raters.map((n) => [n, n]))
-                        .filter(([k]) => k !== analyzeFor)
+                      {[["me", myLabel]].concat(
+                        raters.filter((n) => !isSelfKey(n)).map((n) => [n, n]))
+                        .filter(([k]) => {
+                          if (k === analyzeFor) return false;
+                          // 메인이 본인이면 본인(me) 칩도 비교에서 제외
+                          if (isSelfKey(analyzeFor) && isSelfKey(k)) return false;
+                          return true;
+                        })
                         .map(([k, label]) => {
                           const sel = compareWith.includes(k);
                           return (
@@ -1982,7 +2003,7 @@ function App() {
                       평가자별 예측 비교
                     </div>
                     {raterScores.slice().sort((a, b) => (b.score || 0) - (a.score || 0)).map((rs) => {
-                      const label = (rs.rater === "me" || rs.rater === "나") ? myLabel : rs.rater;
+                      const label = isSelfKey(rs.rater) ? myLabel : rs.rater;
                       const pct = Math.max(0, Math.min(100, rs.score || 0));
                       return (
                         <div key={rs.rater} style={{ marginBottom: 10 }}>
