@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.64";
+const APP_VERSION = "v0.65";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -1977,6 +1977,22 @@ function App() {
                 border: `1px solid ${C.line}`, borderRadius: 12, color: C.text, padding: 12,
                 fontSize: 14, resize: "vertical", marginBottom: 12 }} />
 
+            {analyzeMode === "single" && text.trim() && (() => {
+              const pre = findInCellar(text.trim());
+              if (!pre) return null;
+              return (
+                <div onClick={() => { setKindFilter(pre.status === "wishlist" ? "wishlist" : "all"); setTab("cellar"); }}
+                  style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, cursor: "pointer",
+                    background: C.panel2, border: `1px solid ${C.gold}` }}>
+                  <div style={{ fontSize: 12, color: C.gold, fontWeight: 700 }}>
+                    {pre.status === "wishlist" ? "위시리스트에 있어요" : "셀러에 있어요"}
+                    {pre.myScore != null ? ` · ${pre.myScore}점` : ""} — 분석 없이 보기 →
+                  </div>
+                  <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>{pre.name}</div>
+                </div>
+              );
+            })()}
+
             {analyzeMode === "menu" ? (
               <button onClick={runMenuAnalyze} disabled={menuLoading}
                 style={{ width: "100%", padding: 14, background: C.gold, color: "#1B160C",
@@ -2115,7 +2131,7 @@ function App() {
                     </div>
                     <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>{cellarMatch.name}</div>
                     <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                      <button onClick={() => setTab("cellar")}
+                      <button onClick={() => { setKindFilter(cellarMatch.status === "wishlist" ? "wishlist" : "all"); setTab("cellar"); }}
                         style={{ flex: 1, padding: "8px 10px", fontSize: 12, borderRadius: 8,
                           background: C.gold, color: "#1a1410", border: "none", fontWeight: 700,
                           cursor: "pointer" }}>기존 기록 보기</button>
