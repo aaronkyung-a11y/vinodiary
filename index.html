@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.63";
+const APP_VERSION = "v0.64";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -228,6 +228,7 @@ function App() {
   const [imagePreview, setImagePreview] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState(null);
+  const [cellarMatch, setCellarMatch] = useState(null); // 분석한 술이 이미 셀러/위시에 있으면
   const [error, setError] = useState(null);
   const [recs, setRecs] = useState(null);
   const [recLoading, setRecLoading] = useState(false);
@@ -546,6 +547,19 @@ function App() {
   }
 
   // 분석된 술이 셀러에 이미 있으면 점수·축을 가져옴
+  // 이름으로 셀러/위시리스트에서 같은 술 찾기(정규화 매칭)
+  function normNm(s) {
+    return (s || "").toLowerCase().replace(/[\s\u00b7.,'"()\-]/g, "");
+  }
+  function findInCellar(name) {
+    if (!name) return null;
+    const q = normNm(name);
+    if (!q) return null;
+    let hit = entries.find((e) => normNm(e.name) === q);
+    if (!hit) hit = entries.find((e) => { const n = normNm(e.name); return n && (n.includes(q) || q.includes(n)); });
+    return hit || null;
+  }
+
   function mergeFromCellar(wine) {
     if (!wine || !wine.name) return;
     const q = wine.name.toLowerCase().replace(/\s+/g, "");
@@ -850,12 +864,15 @@ function App() {
     setError(null);
     setAnalyzing(true);
     setResult(null);
+    setCellarMatch(null);
     setCandidates(null);
     setRaterScores(null);
     try {
       const r = await api({ action: "analyze", text: name + (kind ? " (" + kind + ")" : ""), forWhom: analyzeFor });
       if (r.error) throw new Error(r.error);
       setResult(r);
+      // 이미 셀러/위시에 있는 술인지 확인
+      try { const m = findInCellar(r.name); setCellarMatch(m || null); } catch (e) { setCellarMatch(null); }
       // 비교 대상에서 메인 평가자와 '본인 별칭'은 제외(본인이 me/이름으로 이중 등록되는 것 방지)
       const mainIsSelf = isSelfKey(analyzeFor);
       const others = compareWith.filter((x) => {
@@ -2089,6 +2106,26 @@ function App() {
             {result && analyzeMode === "single" && (
               <div style={{ marginTop: 18, background: C.panel, border: `1px solid ${C.line}`,
                 borderRadius: 16, padding: 18 }}>
+                {cellarMatch && (
+                  <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: 12,
+                    background: C.panel2, border: `1px solid ${C.gold}` }}>
+                    <div style={{ fontSize: 13, color: C.gold, fontWeight: 700 }}>
+                      {cellarMatch.status === "wishlist" ? "이미 위시리스트에 있어요" : "이미 셀러에 있어요"}
+                      {cellarMatch.myScore != null ? ` · ${cellarMatch.myScore}점` : ""}
+                    </div>
+                    <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>{cellarMatch.name}</div>
+                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                      <button onClick={() => setTab("cellar")}
+                        style={{ flex: 1, padding: "8px 10px", fontSize: 12, borderRadius: 8,
+                          background: C.gold, color: "#1a1410", border: "none", fontWeight: 700,
+                          cursor: "pointer" }}>기존 기록 보기</button>
+                      <button onClick={() => setCellarMatch(null)}
+                        style={{ flex: 1, padding: "8px 10px", fontSize: 12, borderRadius: 8,
+                          background: "transparent", color: C.sub, border: `1px solid ${C.line}`,
+                          cursor: "pointer" }}>새로 분석한 결과 보기</button>
+                    </div>
+                  </div>
+                )}
                 <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
                   <ScoreRing value={result.predictedScore} predicted={true} />
                   <div style={{ flex: 1 }}>
