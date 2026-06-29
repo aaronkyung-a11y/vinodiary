@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.66";
+const APP_VERSION = "v0.67";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -549,7 +549,15 @@ function App() {
   // 분석된 술이 셀러에 이미 있으면 점수·축을 가져옴
   // 이름으로 셀러/위시리스트에서 같은 술 찾기(정규화 매칭)
   function normNm(s) {
-    return (s || "").toLowerCase().replace(/[\s\u00b7.,'"()\-]/g, "");
+    let t = (s || "").toLowerCase().replace(/[\s\u00b7.,'"()\-]/g, "");
+    // 한국어 음차 변형 통일(샤또->샤토 등 된소리/흔한 변형)
+    const rep = [
+      ["\uc0e4\ub610", "\uc0e4\ud1a0"], ["\uae4c\ubca0", "\uce74\ubca0"], ["\uaebc", "\uafe4"],
+      ["\ub69c", "\ud2b8"], ["\ube60", "\ud30c"], ["\uc69c", "\uc640"], ["\ucef4", "\ucf64"],
+      ["\uc1fc\ube44\ub1d1", "\uc18c\ube44\ub1d1"], ["\ubd80\ub974\uace0\ub09c", "\ubc84\uac74\ub514"]
+    ];
+    rep.forEach(function (p) { t = t.split(p[0]).join(p[1]); });
+    return t;
   }
   // 셀러/위시의 특정 항목으로 이동: 탭·필터 전환 + 펼치기 + 스크롤
   function gotoCellarItem(item) {
