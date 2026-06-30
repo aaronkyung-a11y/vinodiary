@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.67";
+const APP_VERSION = "v0.68";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -2184,6 +2184,28 @@ function App() {
                 <div style={{ marginTop: 14, fontSize: 13, color: C.sub, lineHeight: 1.5 }}>
                   <b style={{ color: C.gold }}>닮은 것</b> · {result.resembles}
                 </div>
+                {result.info && (() => {
+                  const inf = result.info;
+                  const isWhisky = result.kind === "whisky";
+                  const rows = isWhisky
+                    ? [["캐스크", inf.cask], ["지역", inf.caskRegion]]
+                    : [["품종", inf.grapes], ["지역", inf.region]];
+                  const shown = rows.filter((r) => r[1] && String(r[1]).trim());
+                  if (!shown.length) return null;
+                  return (
+                    <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10,
+                      background: C.panel2, border: `1px solid ${C.line}` }}>
+                      {shown.map(([k, v]) => (
+                        <div key={k} style={{ fontSize: 12, color: C.text, marginBottom: 3 }}>
+                          <span style={{ color: C.goldDim, marginRight: 6 }}>{k}</span>{v}
+                        </div>
+                      ))}
+                      {result.infoUncertain && (
+                        <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>※ 일부 추정 정보예요</div>
+                      )}
+                    </div>
+                  );
+                })()}
                 <div style={{ marginTop: 8, fontSize: 13, color: C.text, lineHeight: 1.6 }}>
                   {result.reason}
                 </div>
