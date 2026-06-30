@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.72";
+const APP_VERSION = "v0.74";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -80,6 +80,21 @@ function setApiUrl(v) {
 }
 const PROFILE_LS = "vinodiary:profile"; // 현재 선택된 프로필명
 const PROFILES_LS = "vinodiary:profiles"; // 프로필 목록 JSON
+const ENTRIES_CACHE_PREFIX = "vinodiary:cache:entries:"; // 프로필별 entries 캐시
+function entriesCacheKey(prof) { return ENTRIES_CACHE_PREFIX + (prof || ""); }
+function readEntriesCache(prof) {
+  try {
+    const raw = localStorage.getItem(entriesCacheKey(prof));
+    if (!raw) return null;
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : null;
+  } catch (e) { return null; }
+}
+function writeEntriesCache(prof, list) {
+  // 용량 초과 등 실패는 조용히 무시(캐시는 부가기능, 없어도 동작)
+  try { localStorage.setItem(entriesCacheKey(prof), JSON.stringify(list || [])); }
+  catch (e) {}
+}
 const DEFAULT_PROFILE = "호빈";
 function getProfile() {
   try { return localStorage.getItem(PROFILE_LS) || DEFAULT_PROFILE; }
@@ -222,7 +237,7 @@ function App() {
   const [ready, setReady] = useState(!!getApiUrl());
   const [urlInput, setUrlInput] = useState(getApiUrl());
   const [tab, setTab] = useState("add");
-  const [entries, setEntries] = useState([]);
+  const [entries, setEntries] = useState(() => readEntriesCache(getProfile()) || []);
   const [text, setText] = useState("");
   const [imageData, setImageData] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
@@ -430,8 +445,8 @@ function App() {
     setProfile(p);            // localStorage 먼저
     setCurProfileState(p);    // state
     setProfileMenuOpen(false);
-    // null로 비우면 렌더가 .length에서 터지므로 빈 배열로
-    setEntries([]);
+    // 전환할 프로필의 캐시가 있으면 즉시 표시(없으면 빈 배열)
+    setEntries(readEntriesCache(p) || []);
     setPosts(null); // posts는 null 허용(로딩 표시), 단 피드 렌더에서 가드됨
     setRaters([]);
     refresh(p);                 // 전환할 프로필을 명시적으로 전달
@@ -784,6 +799,7 @@ function App() {
       } catch (e) {}
       const list = r.entries || [];
       setEntries(list);
+      writeEntriesCache(prof, list); // 다음 실행 즉시 표시용 캐시 갱신
       // 통합 사람 목록(전체 프로필 후보) — 폴백: 데이터의 scores 키
       let people = (r && r.people && r.people.length) ? r.people : [];
       if (!people.length) {
@@ -1128,6 +1144,22 @@ function App() {
     } finally {
       setProfileLoading(false);
     }
+  }
+
+  // 서브타입 필터 매칭(셀러 칩). subtype이 있으면 정확히, 없으면 이름·설명 키워드로 추정.
+  // champagne/red/white만 추정 가능(rose·sweet는 이름만으로 부정확 → subtype 있는 것만).
+  function matchesSubFilter(e, sub) {
+    if (sub === "all") return true;
+    if (sub === "whisky") return e.kind === "whisky";
+    // 와인 세분류
+    if (e.kind === "whisky") return false;
+    if (e.subtype) return e.subtype === sub;     // subtype 있으면 정확 매칭
+    if (sub === "rose" || sub === "sweet") return false; // 추정 불가 → 제외
+    const t = ((e.name || "") + " " + (e.resembles || "")).toLowerCase();
+    if (sub === "champagne") return /샴페인|champagne|크레망|cr[ée]mant|스파클|sparkl|franciacorta|cava|trento|샹파뉴/.test(t);
+    if (sub === "red") return /레드|red|루즈|rouge|피노 누아|pinot noir|카베르네|cabernet|메를로|merlot|시라|syrah|네비올로|nebbiolo|산지오베제|sangiovese/.test(t);
+    if (sub === "white") return /화이트|white|블랑|blanc|샤르도네|chardonnay|리슬링|riesling|소비뇽|sauvignon|카리칸테|carricante/.test(t) && !/샴페인|champagne|스파클|sparkl/.test(t);
+    return false;
   }
 
   // ── 월드컵 ──
@@ -2435,8 +2467,9 @@ function App() {
                   if (!hay.includes(q)) return false;
                 }
                 // subtype 필터(와인 세분류). 위시리스트 탭에선 미적용
+                // subtype 있으면 정확 매칭, 없으면 이름·설명 키워드 추정
                 if (subFilter !== "all" && kindFilter !== "wishlist") {
-                  if (e.subtype !== subFilter) return false;
+                  if (!matchesSubFilter(e, subFilter)) return false;
                 }
                 // 고득점만(내 점수 85+)
                 if (highOnly) {
