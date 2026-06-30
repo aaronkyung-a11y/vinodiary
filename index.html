@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.70";
+const APP_VERSION = "v0.71";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -775,27 +775,19 @@ function App() {
     setSyncing(true);
     try {
       const url = getApiUrl();
-      const r = await fetch(url + "?action=list&owner=" + encodeURIComponent(prof)).then((x) => x.json());
+      // entries+people+friends를 한 번의 왕복으로 (백엔드 bootstrap)
+      const r = await fetch(url + "?action=bootstrap&owner=" + encodeURIComponent(prof)).then((x) => x.json());
       const list = r.entries || [];
       setEntries(list);
-      // 통합 사람 목록(전체 프로필 후보)
-      let people = [];
-      try {
-        const pr = await api({ action: "listPeople", owner: prof });
-        people = (pr && pr.people) ? pr.people : [];
-      } catch (e) { /* 폴백 */ }
+      // 통합 사람 목록(전체 프로필 후보) — 폴백: 데이터의 scores 키
+      let people = (r && r.people && r.people.length) ? r.people : [];
       if (!people.length) {
         const set = {};
         list.forEach((e) => { if (e.scores) Object.keys(e.scores).forEach((n) => (set[n] = true)); });
         people = Object.keys(set);
       }
-      // 현재 프로필의 친구(양방향 관계 기반)
-      let myFriends = [];
-      try {
-        const fr = await api({ action: "friendsOf", name: prof });
-        myFriends = (fr && fr.friends) ? fr.friends : [];
-      } catch (e) { /* 폴백: 아래 scores 기반 */ }
-      // 폴백: 관계가 없으면 현재 데이터의 scores 키 사용
+      // 현재 프로필의 친구(양방향) — 폴백: scores 키
+      let myFriends = (r && r.friends && r.friends.length) ? r.friends : [];
       if (!myFriends.length) {
         const s = {};
         list.forEach((e) => { if (e.scores) Object.keys(e.scores).forEach((n) => (s[n] = true)); });
