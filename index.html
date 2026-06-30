@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.74";
+const APP_VERSION = "v0.75";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -249,8 +249,6 @@ function App() {
   const [recLoading, setRecLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [kindFilter, setKindFilter] = useState("all"); // all | wine | whisky | wishlist
-  const [subFilter, setSubFilter] = useState("all"); // all | champagne | white | red | rose | sweet
-  const [highOnly, setHighOnly] = useState(false); // 85점 이상만
   const [expandedId, setExpandedId] = useState(null);
   const [recDetail, setRecDetail] = useState({});
   const [recDone, setRecDone] = useState({}); // 추천별 처리완료 {name: {status, score}}
@@ -1146,7 +1144,8 @@ function App() {
     }
   }
 
-  // 서브타입 필터 매칭(셀러 칩). subtype이 있으면 정확히, 없으면 이름·설명 키워드로 추정.
+  // 서브타입 필터 매칭. (v0.75에서 셀러 칩 UI 제거로 현재 미사용 — 키워드 분류 로직 보존용)
+  // subtype이 있으면 정확히, 없으면 이름·설명 키워드로 추정.
   // champagne/red/white만 추정 가능(rose·sweet는 이름만으로 부정확 → subtype 있는 것만).
   function matchesSubFilter(e, sub) {
     if (sub === "all") return true;
@@ -2352,28 +2351,6 @@ function App() {
                 {error}
               </div>
             )}
-            {/* 요약 통계 */}
-            {entries.length > 0 && (() => {
-              const tasted = entries.filter((e) => e.status !== "wishlist");
-              const wish = entries.filter((e) => e.status === "wishlist").length;
-              const rated = tasted.filter((e) => e.myScore != null);
-              const avg = rated.length ? Math.round(rated.reduce((s, e) => s + e.myScore, 0) / rated.length) : null;
-              const wine = tasted.filter((e) => e.kind === "wine").length;
-              const whisky = tasted.filter((e) => e.kind === "whisky").length;
-              return (
-                <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-                  {[["병", tasted.length], ["평균", avg != null ? avg : "—"],
-                    ["와인", wine], ["위스키", whisky], ["위시", wish]].map(([label, val], i) => (
-                    <div key={i} style={{ flex: "1 0 17%", background: C.panel,
-                      border: `1px solid ${C.line}`, borderRadius: 10, padding: "8px 4px",
-                      textAlign: "center" }}>
-                      <div style={{ fontSize: 17, fontWeight: 700, color: C.gold, fontFamily: "Georgia, serif" }}>{val}</div>
-                      <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>{label}</div>
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
             {entries.length > 0 && (
               <div style={{ position: "relative", marginBottom: 10 }}>
                 <input value={search} onChange={(e) => setSearch(e.target.value)}
@@ -2428,30 +2405,6 @@ function App() {
                 })}
               </div>
             )}
-            {entries.length > 0 && kindFilter !== "wishlist" && (
-              <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap",
-                alignItems: "center" }}>
-                {[["all", "전체"], ["champagne", "샴페인"], ["white", "화이트"], ["red", "레드"],
-                  ["rose", "로제"], ["sweet", "스위트"], ["whisky", "위스키"]].map(([k, label]) => {
-                  const sel = subFilter === k;
-                  return (
-                    <button key={k} onClick={() => setSubFilter(k)}
-                      style={{ padding: "4px 10px", fontSize: 11, borderRadius: 12,
-                        background: sel ? C.goldDim : C.panel2, color: sel ? "#fff" : C.sub,
-                        border: `1px solid ${sel ? C.goldDim : C.line}`, cursor: "pointer" }}>
-                      {label}
-                    </button>
-                  );
-                })}
-                <button onClick={() => setHighOnly((v) => !v)}
-                  style={{ padding: "4px 10px", fontSize: 11, borderRadius: 12,
-                    background: highOnly ? C.gold : C.panel2, color: highOnly ? "#1B160C" : C.sub,
-                    border: `1px solid ${highOnly ? C.gold : C.line}`, cursor: "pointer",
-                    marginLeft: "auto", fontWeight: highOnly ? 700 : 400 }}>
-                  ★ 85+
-                </button>
-              </div>
-            )}
             {entries
               .filter((e) => {
                 if (kindFilter === "wishlist") {
@@ -2465,15 +2418,6 @@ function App() {
                   const q = search.trim().toLowerCase();
                   const hay = ((e.name || "") + " " + (e.resembles || "")).toLowerCase();
                   if (!hay.includes(q)) return false;
-                }
-                // subtype 필터(와인 세분류). 위시리스트 탭에선 미적용
-                // subtype 있으면 정확 매칭, 없으면 이름·설명 키워드 추정
-                if (subFilter !== "all" && kindFilter !== "wishlist") {
-                  if (!matchesSubFilter(e, subFilter)) return false;
-                }
-                // 고득점만(내 점수 85+)
-                if (highOnly) {
-                  if (!(e.myScore != null && e.myScore >= 85)) return false;
                 }
                 return true;
               })
