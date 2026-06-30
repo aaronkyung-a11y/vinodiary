@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.71";
+const APP_VERSION = "v0.72";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -776,7 +776,12 @@ function App() {
     try {
       const url = getApiUrl();
       // entries+people+friends를 한 번의 왕복으로 (백엔드 bootstrap)
+      const _t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
       const r = await fetch(url + "?action=bootstrap&owner=" + encodeURIComponent(prof)).then((x) => x.json());
+      try {
+        const _total = Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - _t0);
+        console.log("[sync] total=" + _total + "ms server=" + (r && r._serverMs != null ? r._serverMs : "?") + "ms entries=" + ((r && r.entries) ? r.entries.length : 0));
+      } catch (e) {}
       const list = r.entries || [];
       setEntries(list);
       // 통합 사람 목록(전체 프로필 후보) — 폴백: 데이터의 scores 키
