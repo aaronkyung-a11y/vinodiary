@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.68";
+const APP_VERSION = "v0.69";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -999,6 +999,8 @@ function App() {
       axes: result.axes || null,
       subtype: result.subtype || "",
       nameKo: result.nameKo || "",
+      info: result.info || null,
+      infoUncertain: result.infoUncertain || false,
       companions: companions.trim(),
       note: note.trim(),
     };
