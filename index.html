@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.75";
+const APP_VERSION = "v0.77";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -267,8 +267,21 @@ function App() {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("recent"); // recent | score
   const [analyzeMode, setAnalyzeMode] = useState("single"); // single | menu
-  const [analyzeFor, setAnalyzeFor] = useState("me"); // 분석 기준 평가자(메인): me | 친구이름
-  const [compareWith, setCompareWith] = useState([]); // 추가 비교 대상(점수 나란히)
+  const [analyzeForMulti, setAnalyzeForMulti] = useState(["me"]); // 한 병 분석 사람 선택(메뉴판식 다중)
+  // 한 병 분석 사람 토글: 메뉴판 toggleMenuFor와 동일 규칙("다 같이" 단독, 최소 1명)
+  function toggleAnalyzeFor(k) {
+    setAnalyzeForMulti((prev) => {
+      if (k === "common") return ["common"];
+      let next = prev.filter((x) => x !== "common");
+      if (next.includes(k)) {
+        next = next.filter((x) => x !== k);
+        if (next.length === 0) next = ["me"];
+      } else {
+        next = [...next, k];
+      }
+      return next;
+    });
+  }
   const [raterScores, setRaterScores] = useState(null); // 비교 결과 [{rater,score,why,confidence}]
   const [menuFor, setMenuFor] = useState(["me"]); // 메뉴판 분석 기준 평가자(다중 선택)
   // 메뉴 평가자 토글: "다 같이"는 단독, 개별은 복수 선택
@@ -436,6 +449,8 @@ function App() {
 
   // 내 표시 이름(빈 값이면 "나")
   const myLabel = curProfile || "나";
+  // 한 병 분석 메인 평가자(파생): "다 같이"면 본인, 아니면 첫 선택
+  const analyzeMain = analyzeForMulti.includes("common") ? "me" : (analyzeForMulti[0] || "me");
 
   // 프로필 전환: 저장 후 데이터 다시 로드
   function switchProfile(p) {
@@ -680,7 +695,7 @@ function App() {
     if (!target) return;
     setPosts((prev) => (prev || []).filter((p) => p.id !== id));
     const timer = setTimeout(() => {
-      api({ action: "deletePost", id });
+      api({ action: "deletePost", id, owner: curProfile });
       setPendingPostDelete(null);
     }, 5000);
     setPendingPostDelete({ post: target, timer });
@@ -732,7 +747,7 @@ function App() {
     setEditSaving(true);
     try {
       const isMe = editAuthor === "me" || editAuthor === "나";
-      const patch = { id: p.id, author: isMe ? "me" : editAuthor, text: editText.trim() };
+      const patch = { id: p.id, author: isMe ? "me" : editAuthor, text: editText.trim(), owner: curProfile };
       // 사진: undefined=유지(보내지 않음), null=삭제, string=새 업로드
       if (editImageData === null) {
         patch.image = "";
@@ -903,16 +918,25 @@ function App() {
     setCandidates(null);
     setRaterScores(null);
     try {
-      const r = await api({ action: "analyze", text: name + (kind ? " (" + kind + ")" : ""), forWhom: analyzeFor });
+      // analyzeForMulti에서 메인 평가자 + 비교 대상 파생 (메뉴판식 선택 통일)
+      const isCommon = analyzeForMulti.includes("common");
+      const mainRater = isCommon ? "common" : (analyzeForMulti[0] || "me");
+      const r = await api({ action: "analyze", text: name + (kind ? " (" + kind + ")" : ""), forWhom: mainRater });
       if (r.error) throw new Error(r.error);
       setResult(r);
       // 이미 셀러/위시에 있는 술인지 확인
       try { const m = findInCellar(r.name); setCellarMatch(m || null); } catch (e) { setCellarMatch(null); }
       // 비교 대상에서 메인 평가자와 '본인 별칭'은 제외(본인이 me/이름으로 이중 등록되는 것 방지)
-      const mainIsSelf = isSelfKey(analyzeFor);
-      const others = compareWith.filter((x) => {
-        if (x === analyzeFor) return false;
-        if (mainIsSelf && isSelfKey(x)) return false; // 메인이 본인이면 본인 별칭 모두 제외
+      // 비교 대상: "다 같이"면 me+친구 전원, 아니면 선택 중 메인 제외 나머지
+      const compareBase = isCommon
+        ? ["me"].concat(raters)
+        : analyzeForMulti;
+      // "다 같이"(common)는 본인 기준 결과이므로 비교에서도 본인 별칭 제외
+      const mainIsSelf = isCommon || isSelfKey(mainRater);
+      const others = compareBase.filter((x) => {
+        if (x === "common") return false;
+        if (x === mainRater) return false;
+        if (mainIsSelf && isSelfKey(x)) return false;
         return true;
       });
       if (others.length > 0) {
@@ -922,7 +946,7 @@ function App() {
           const otherScores = (sr && sr.scores) ? sr.scores : [];
           // 메인 평가자(위 분석 점수)를 비교 맨 앞에 직접 추가 — 별도 호출 없이 정확
           const mainEntry = {
-            rater: analyzeFor,
+            rater: mainRater,
             score: r.predictedScore,
             why: r.resembles || "",
             confidence: r.confidence || "medium",
@@ -985,7 +1009,7 @@ function App() {
   }
 
   async function saveResult(score, status) {
-    const isMe = analyzeFor === "me" || analyzeFor === "나";
+    const isMe = analyzeMain === "me" || analyzeMain === "나";
     // 사진이 있으면 Drive 업로드 후 URL 확보
     let imageUrl = "";
     if (imageData) {
@@ -1004,7 +1028,7 @@ function App() {
       predictedScore: result.predictedScore,
       reason: result.reason,
       myScore: isMe ? (score ?? null) : null,
-      scores: (!isMe && score != null) ? { [analyzeFor]: score } : {},
+      scores: (!isMe && score != null) ? { [analyzeMain]: score } : {},
       image: imageUrl,
       status: status || "tasted",
       axes: result.axes || null,
@@ -1758,7 +1782,12 @@ function App() {
               return (
                 <React.Fragment>
                   {shown.map((p) => {
-                const who = (p.author === "me" || p.author === "") ? myLabel : p.author;
+                // 작성자 표시: owner(피드 주인)가 있으면 그 이름, 없으면(옛 글) 기존 방식
+                const postOwner = p.owner || curProfile;
+                const isMine = postOwner === curProfile;
+                const who = (p.author && p.author !== "me" && p.author !== "나")
+                  ? p.author
+                  : (isMine ? myLabel : postOwner);
                 const isEditing = editingPost === p.id;
                 if (isEditing) {
                   return (
@@ -1847,15 +1876,17 @@ function App() {
                             <div style={{ fontSize: 10, color: C.sub }}>{p.date}</div>
                           </div>
                         </div>
-                        <div style={{ display: "flex", gap: 4 }}>
-                          <button onClick={() => startEditPost(p)} title="수정"
-                            style={{ background: "none", border: "none", color: C.sub, fontSize: 14,
-                              cursor: "pointer", padding: "2px 6px" }}>✎</button>
-                          <button onClick={() => { if (window.confirm("이 기록을 삭제할까요?")) removePost(p.id); }}
-                            title="삭제"
-                            style={{ background: "none", border: "none", color: C.sub, fontSize: 15,
-                              cursor: "pointer", padding: "2px 6px" }}>🗑</button>
-                        </div>
+                        {isMine && (
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <button onClick={() => startEditPost(p)} title="수정"
+                              style={{ background: "none", border: "none", color: C.sub, fontSize: 14,
+                                cursor: "pointer", padding: "2px 6px" }}>✎</button>
+                            <button onClick={() => { if (window.confirm("이 기록을 삭제할까요?")) removePost(p.id); }}
+                              title="삭제"
+                              style={{ background: "none", border: "none", color: C.sub, fontSize: 15,
+                                cursor: "pointer", padding: "2px 6px" }}>🗑</button>
+                          </div>
+                        )}
                       </div>
                       {p.text && (
                         <div style={{ fontSize: 14, color: C.text, lineHeight: 1.6, marginTop: 10,
@@ -1912,57 +1943,34 @@ function App() {
             {analyzeMode === "single" && (
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 6 }}>
-                  누구 취향으로 분석할까요?
+                  누구 취향으로 분석할까요? <span style={{ color: C.sub }}>(여러 명 선택 가능)</span>
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <button onClick={() => toggleAnalyzeFor("common")}
+                    style={{ padding: "6px 14px", fontSize: 13, borderRadius: 16,
+                      background: analyzeForMulti.includes("common") ? C.gold : C.panel,
+                      color: analyzeForMulti.includes("common") ? "#1B160C" : C.sub,
+                      border: `1px solid ${analyzeForMulti.includes("common") ? C.gold : C.line}`,
+                      cursor: "pointer", fontWeight: analyzeForMulti.includes("common") ? 700 : 400 }}>다 같이</button>
                   {[["me", myLabel]].concat(raters.map((n) => [n, n])).map(([k, label]) => {
-                    const sel = analyzeFor === k;
+                    const sel = analyzeForMulti.includes(k);
                     return (
-                      <button key={k} onClick={() => setAnalyzeFor(k)}
+                      <button key={k} onClick={() => toggleAnalyzeFor(k)}
                         style={{ padding: "6px 14px", fontSize: 13, borderRadius: 16,
                           background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
                           border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer",
-                          fontWeight: sel ? 700 : 400 }}>{label}</button>
+                          fontWeight: sel ? 700 : 400 }}>
+                        {sel && !analyzeForMulti.includes("common") ? "✓ " : ""}{label}
+                      </button>
                     );
                   })}
-                  <button onClick={() => addFriend((nm) => setAnalyzeFor(nm))}
+                  <button onClick={() => addFriend((nm) => toggleAnalyzeFor(nm))}
                     style={{ padding: "6px 14px", fontSize: 13, borderRadius: 16,
                       background: "transparent", color: C.goldDim, border: `1px dashed ${C.goldDim}`,
                       cursor: "pointer" }}>+ 친구</button>
                 </div>
-                {raters.length > 0 && (
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 6 }}>
-                      함께 비교 <span style={{ color: C.sub }}>(선택, 점수를 나란히 보여줘요)</span>
-                    </div>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {[["me", myLabel]].concat(
-                        raters.filter((n) => !isSelfKey(n)).map((n) => [n, n]))
-                        .filter(([k]) => {
-                          if (k === analyzeFor) return false;
-                          // 메인이 본인이면 본인(me) 칩도 비교에서 제외
-                          if (isSelfKey(analyzeFor) && isSelfKey(k)) return false;
-                          return true;
-                        })
-                        .map(([k, label]) => {
-                          const sel = compareWith.includes(k);
-                          return (
-                            <button key={k} onClick={() => setCompareWith((prev) =>
-                              prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k])}
-                              style={{ padding: "5px 12px", fontSize: 12, borderRadius: 14,
-                                background: sel ? C.panel2 : "transparent",
-                                color: sel ? C.gold : C.sub,
-                                border: `1px solid ${sel ? C.gold : C.line}`, cursor: "pointer" }}>
-                              {sel ? "✓ " : ""}{label}
-                            </button>
-                          );
-                        })}
-                    </div>
-                  </div>
-                )}
               </div>
-            )}
-            {analyzeMode === "menu" && (
+            )}            {analyzeMode === "menu" && (
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 6 }}>
                   누구 취향으로 골라줄까요? <span style={{ color: C.sub }}>(여러 명 선택 가능)</span>
@@ -2063,7 +2071,7 @@ function App() {
                 border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
                 cursor: "pointer", opacity: (analyzing || candLoading) ? 0.6 : 1 }}>
               {candLoading ? "분석 중…" : analyzing ? "분석 중…" :
-                ((analyzeFor === "me" || analyzeFor === "나") ? "내 취향으로 분석하기" : `${analyzeFor} 취향으로 분석하기`)}
+                ((analyzeMain === "me" || analyzeMain === "나") ? "내 취향으로 분석하기" : `${analyzeMain} 취향으로 분석하기`)}
             </button>
             )}
 
@@ -2240,7 +2248,7 @@ function App() {
                   {result.reason}
                 </div>
                 <div style={{ marginTop: 6, fontSize: 11, color: C.sub }}>
-                  신뢰도: {result.confidence} · {(analyzeFor === "me" || analyzeFor === "나") ? "내" : analyzeFor + "의"} 예측 점수(추정)
+                  신뢰도: {result.confidence} · {(analyzeMain === "me" || analyzeMain === "나") ? "내" : analyzeMain + "의"} 예측 점수(추정)
                 </div>
                 {raterScores && raterScores.length > 0 && (
                   <div style={{ marginTop: 14, padding: 12, background: C.panel2,
