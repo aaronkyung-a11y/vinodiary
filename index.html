@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.80";
+const APP_VERSION = "v0.81";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -267,6 +267,32 @@ function App() {
   const [foodText, setFoodText] = useState("");
   const [foodResult, setFoodResult] = useState(null);
   const [foodLoading, setFoodLoading] = useState(false);
+  const [foodWishDone, setFoodWishDone] = useState({}); // 페어링 추천→위시 담기 완료 {name:true}
+  // 페어링 추천 술을 위시리스트로 담기 (중복 방지)
+  async function addPairingToWish(p) {
+    const dup = findInCellar(p.name);
+    if (dup) {
+      showToast(dup.status === "wishlist" ? "이미 위시리스트에 있어요" : "이미 셀러에 있어요", "error");
+      setFoodWishDone((prev) => ({ ...prev, [p.name]: true }));
+      return;
+    }
+    const entry = {
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      date: kstNow(),
+      name: p.name, kind: p.kind || "",
+      resembles: p.why || "",
+      predictedScore: p.predictedScore ?? null,
+      reason: p.why || "",
+      myScore: null, image: "",
+      status: "wishlist",
+      axes: null, subtype: "",
+      info: null, infoUncertain: false,
+      nameKo: p.nameKo || "",
+    };
+    await savingApi({ action: "save", entry }, "위시리스트에 담음");
+    setFoodWishDone((prev) => ({ ...prev, [p.name]: true }));
+    refresh();
+  }
   const [profile, setProfile] = useState(null);     // 취향 분석 결과
   const [profileLoading, setProfileLoading] = useState(false);
   const [toast, setToast] = useState(null); // {msg, kind: "loading"|"done"|"error"}
@@ -1154,6 +1180,7 @@ function App() {
       const r = await api({ action: "pairFood", food: foodText.trim() });
       if (r.error) throw new Error(r.error);
       setFoodResult(r);
+      setFoodWishDone({});
     } catch (e) {
       showToast("페어링 추천에 실패했어요", "error");
     } finally {
@@ -2846,15 +2873,26 @@ function App() {
                     <div style={{ marginBottom: foodResult.tip ? 10 : 0 }}>
                       <span style={{ color: C.goldDim, fontSize: 11, letterSpacing: 1 }}>이런 술도</span>
                       {foodResult.suggestions.map((p, i) => (
-                        <div key={i} style={{ marginTop: 4 }}>
-                          <span style={{ width: 7, height: 7, borderRadius: "50%", display: "inline-block",
-                            marginRight: 6, background: p.kind === "whisky" ? C.whisky : C.wine }} />
-                          {p.predictedScore != null && (
-                            <span style={{ color: C.goldDim, fontWeight: 700, marginRight: 6,
-                              fontFamily: "Georgia, serif" }}>~{p.predictedScore}</span>
+                        <div key={i} style={{ marginTop: 6, display: "flex", alignItems: "flex-start", gap: 6 }}>
+                          <div style={{ flex: 1 }}>
+                            <span style={{ width: 7, height: 7, borderRadius: "50%", display: "inline-block",
+                              marginRight: 6, background: p.kind === "whisky" ? C.whisky : C.wine }} />
+                            {p.predictedScore != null && (
+                              <span style={{ color: C.goldDim, fontWeight: 700, marginRight: 6,
+                                fontFamily: "Georgia, serif" }}>~{p.predictedScore}</span>
+                            )}
+                            <span style={{ color: C.text, fontWeight: 600 }}>{p.name}</span>
+                            <span style={{ color: C.sub }}> — {p.why}</span>
+                          </div>
+                          {foodWishDone[p.name] ? (
+                            <span style={{ color: C.goldDim, fontSize: 11, whiteSpace: "nowrap",
+                              padding: "3px 8px" }}>✧ 담음</span>
+                          ) : (
+                            <button onClick={() => addPairingToWish(p)}
+                              style={{ background: "transparent", color: C.goldDim, whiteSpace: "nowrap",
+                                border: `1px solid ${C.line}`, borderRadius: 12, fontSize: 11,
+                                padding: "3px 8px", cursor: "pointer" }}>+ 위시</button>
                           )}
-                          <span style={{ color: C.text, fontWeight: 600 }}>{p.name}</span>
-                          <span style={{ color: C.sub }}> — {p.why}</span>
                         </div>
                       ))}
                     </div>
