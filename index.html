@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.78";
+const APP_VERSION = "v0.79";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -680,6 +680,8 @@ function App() {
           status: "tasted",
           axes: postWine.axes || null,
           subtype: postWine.subtype || "",
+          info: postWine.info || null,
+          infoUncertain: postWine.infoUncertain || false,
           companions: "", note: postText.trim(),
         };
         await api({ action: "save", entry });
@@ -1068,6 +1070,8 @@ function App() {
       axes: d.axes || null,
       subtype: d.subtype || rec.subtype || "",
       nameKo: rec.nameKo || d.nameKo || "",
+      info: d.info || null,
+      infoUncertain: d.infoUncertain || false,
     };
     await savingApi({ action: "save", entry }, status === "wishlist" ? "위시리스트에 담음" : "셀러에 저장됨");
     // 이 추천 카드를 '처리됨'으로 표시
@@ -1320,6 +1324,8 @@ function App() {
           name: champion.name, kind: champion.kind, resembles: champion.why || "월드컵 우승",
           predictedScore: null, reason: "월드컵에서 선택한 술", myScore: null,
           image: "", status: "wishlist", axes: null,
+          info: champion.info || null,
+          infoUncertain: champion.infoUncertain || false,
         };
         await savingApi({ action: "save", entry }, "우승작 위시리스트에 담음");
         refresh();
@@ -1423,6 +1429,8 @@ function App() {
           scores: it.scores || {},
           axes: it.axes || null,
           subtype: it.subtype || "",
+          info: it.info || null,
+          infoUncertain: it.infoUncertain || false,
         };
         await api({ action: "save", entry });
       }
