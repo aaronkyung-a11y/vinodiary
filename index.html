@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.77";
+const APP_VERSION = "v0.78";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -81,6 +81,12 @@ function setApiUrl(v) {
 const PROFILE_LS = "vinodiary:profile"; // 현재 선택된 프로필명
 const PROFILES_LS = "vinodiary:profiles"; // 프로필 목록 JSON
 const ENTRIES_CACHE_PREFIX = "vinodiary:cache:entries:"; // 프로필별 entries 캐시
+// 깨진 java Object 문자열 방어(표시용). 복구 전 데이터가 화면에 노출되지 않도록.
+function safeStr(v) {
+  if (v == null) return "";
+  const s = String(v);
+  return /\[L?java\.lang\.Object;@|\[Ljava/.test(s) ? "" : s;
+}
 function entriesCacheKey(prof) { return ENTRIES_CACHE_PREFIX + (prof || ""); }
 function readEntriesCache(prof) {
   try {
@@ -2490,7 +2496,7 @@ function App() {
                         {e.nameKo}
                       </div>
                     )}
-                    <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.4 }}>{e.resembles}</div>
+                    <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.4 }}>{safeStr(e.resembles)}</div>
                   </div>
                   <button onClick={() => removeEntry(e.id)}
                     style={{ background: "none", border: "none", color: C.line, fontSize: 18,
