@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.81";
+const APP_VERSION = "v0.82";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -960,33 +960,39 @@ function App() {
       setResult(r);
       // 이미 셀러/위시에 있는 술인지 확인
       try { const m = findInCellar(r.name); setCellarMatch(m || null); } catch (e) { setCellarMatch(null); }
-      // 비교 대상에서 메인 평가자와 '본인 별칭'은 제외(본인이 me/이름으로 이중 등록되는 것 방지)
-      // 비교 대상: "다 같이"면 me+친구 전원, 아니면 선택 중 메인 제외 나머지
-      const compareBase = isCommon
-        ? ["me"].concat(raters)
-        : analyzeForMulti;
-      // "다 같이"(common)는 본인 기준 결과이므로 비교에서도 본인 별칭 제외
-      const mainIsSelf = isCommon || isSelfKey(mainRater);
-      const others = compareBase.filter((x) => {
-        if (x === "common") return false;
-        if (x === mainRater) return false;
-        if (mainIsSelf && isSelfKey(x)) return false;
-        return true;
-      });
-      if (others.length > 0) {
+      if (isCommon) {
+        // "다 같이": 본인(me) + 친구 전원이 각각 이 술을 몇 점일지 나란히. common(가상 평가자)은 표시하지 않음.
+        const everyone = ["me"].concat(raters);
         try {
           const sr = await api({ action: "scoreForRaters",
-            name: r.name || name, kind: r.kind || kind, raters: others });
-          const otherScores = (sr && sr.scores) ? sr.scores : [];
-          // 메인 평가자(위 분석 점수)를 비교 맨 앞에 직접 추가 — 별도 호출 없이 정확
-          const mainEntry = {
-            rater: mainRater,
-            score: r.predictedScore,
-            why: r.resembles || "",
-            confidence: r.confidence || "medium",
-          };
-          setRaterScores([mainEntry, ...otherScores]);
+            name: r.name || name, kind: r.kind || kind, raters: everyone });
+          const scores = (sr && sr.scores) ? sr.scores : [];
+          setRaterScores(scores);
         } catch (e2) { /* 비교 실패는 메인 결과에 영향 없음 */ }
+      } else {
+        // 개별 선택: 첫 선택이 메인, 나머지는 비교. 본인 별칭 중복 제외.
+        const mainIsSelf = isSelfKey(mainRater);
+        const others = analyzeForMulti.filter((x) => {
+          if (x === "common") return false;
+          if (x === mainRater) return false;
+          if (mainIsSelf && isSelfKey(x)) return false;
+          return true;
+        });
+        if (others.length > 0) {
+          try {
+            const sr = await api({ action: "scoreForRaters",
+              name: r.name || name, kind: r.kind || kind, raters: others });
+            const otherScores = (sr && sr.scores) ? sr.scores : [];
+            // 메인 평가자(위 분석 점수)를 비교 맨 앞에 직접 추가
+            const mainEntry = {
+              rater: mainRater,
+              score: r.predictedScore,
+              why: r.resembles || "",
+              confidence: r.confidence || "medium",
+            };
+            setRaterScores([mainEntry, ...otherScores]);
+          } catch (e2) { /* 비교 실패는 메인 결과에 영향 없음 */ }
+        }
       }
     } catch (e) {
       setError("분석에 실패했어요. 다시 시도해 주세요.");
@@ -2289,7 +2295,7 @@ function App() {
                   {result.reason}
                 </div>
                 <div style={{ marginTop: 6, fontSize: 11, color: C.sub }}>
-                  신뢰도: {result.confidence} · {(analyzeMain === "me" || analyzeMain === "나") ? "내" : analyzeMain + "의"} 예측 점수(추정)
+                  신뢰도: {result.confidence} · {analyzeForMulti.includes("common") ? "일반적 예상" : ((analyzeMain === "me" || analyzeMain === "나") ? "내" : analyzeMain + "의")} 예측 점수(추정)
                 </div>
                 {raterScores && raterScores.length > 0 && (
                   <div style={{ marginTop: 14, padding: 12, background: C.panel2,
@@ -2298,7 +2304,7 @@ function App() {
                       평가자별 예측 비교
                     </div>
                     {raterScores.slice().sort((a, b) => (b.score || 0) - (a.score || 0)).map((rs) => {
-                      const label = isSelfKey(rs.rater) ? myLabel : rs.rater;
+                      const label = isSelfKey(rs.rater) ? myLabel : (rs.rater === "common" ? "다 같이" : rs.rater);
                       const pct = Math.max(0, Math.min(100, rs.score || 0));
                       return (
                         <div key={rs.rater} style={{ marginBottom: 10 }}>
