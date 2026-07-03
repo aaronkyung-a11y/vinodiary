@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.86";
+const APP_VERSION = "v0.87";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -859,14 +859,39 @@ function App() {
     }
   }
 
+  // 타임아웃+재시도 fetch. AbortController로 각 시도를 timeoutMs 후 중단하고 재시도.
+  // 콜드스타트로 첫 요청이 느려도, 그 요청이 서버를 깨우므로 다음 시도가 빨라진다.
+  async function fetchWithRetry(url, opts) {
+    const tries = (opts && opts.tries) || 3;
+    const timeoutMs = (opts && opts.timeoutMs) || 20000;
+    let lastErr = null;
+    for (let i = 0; i < tries; i++) {
+      const ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+      try {
+        const res = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
+        if (timer) clearTimeout(timer);
+        return await res.json();
+      } catch (e) {
+        if (timer) clearTimeout(timer);
+        lastErr = e;
+        // 마지막 시도가 아니면 짧게 쉬고 재시도(서버가 깨어나는 시간 확보)
+        if (i < tries - 1) await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+    throw lastErr || new Error("fetch failed");
+  }
+
   async function refresh(forProfile) {
     const prof = forProfile || curProfile;
     setSyncing(true);
     try {
       const url = getApiUrl();
       // entries+people+friends를 한 번의 왕복으로 (백엔드 bootstrap)
+      // 콜드스타트(첫 호출 수십초) 대비: 타임아웃 후 재시도. 첫 요청이 서버를 깨우고 재시도가 빠르게 성공.
       const _t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
-      const r = await fetch(url + "?action=bootstrap&owner=" + encodeURIComponent(prof)).then((x) => x.json());
+      const bootUrl = url + "?action=bootstrap&owner=" + encodeURIComponent(prof);
+      const r = await fetchWithRetry(bootUrl, { tries: 3, timeoutMs: 20000 });
       try {
         const _total = Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - _t0);
         console.log("[sync] total=" + _total + "ms server=" + (r && r._serverMs != null ? r._serverMs : "?") + "ms entries=" + ((r && r.entries) ? r.entries.length : 0));
