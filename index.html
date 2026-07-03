@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.83";
+const APP_VERSION = "v0.84";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -599,13 +599,16 @@ function App() {
       if (postImageData) payload.imageData = postImageData; // 사진 속 술 자동 인식
       const r = await api(payload);
       if (r.error) throw new Error(r.error);
+      if (!r.name) throw new Error("술을 식별하지 못했어요");
       setPostWine(r);
       // 이름칸이 비어 있으면 인식된 이름 채움
       if (!postWineName.trim() && r.name) setPostWineName(r.name);
       // 셀러에 같은 술이 있으면 기록 불러오기
       mergeFromCellar(r);
     } catch (e) {
-      showToast("술 분석에 실패했어요", "error");
+      // 실제 사유를 짧게 노출(진단·안내). 너무 길면 앞부분만.
+      const msg = String(e && e.message ? e.message : e).slice(0, 80);
+      showToast("분석 실패: " + msg, "error");
     } finally {
       setPostWineLoading(false);
     }
