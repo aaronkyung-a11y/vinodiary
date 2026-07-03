@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.84";
+const APP_VERSION = "v0.85";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -260,6 +260,7 @@ function App() {
   const [recDone, setRecDone] = useState({}); // 추천별 처리완료 {name: {status, score}}
   const [recDetailLoading, setRecDetailLoading] = useState(null);
   const [recFor, setRecFor] = useState("me"); // 추천 기준: me | common | 친구이름
+  const [recCondition, setRecCondition] = useState(""); // 자유 추천 조건(예: 이탈리아 와인)
   const [raters, setRaters] = useState([]);    // 등록된 친구 목록
   const [ratingFor, setRatingFor] = useState({}); // {entryId: "친구이름"} 평가자 선택
   const [axesLoading, setAxesLoading] = useState(null);
@@ -1488,7 +1489,8 @@ function App() {
   async function loadRecs() {
     setRecLoading(true); setRecs(null); setProfile(null); setRecDone({});
     try {
-      const r = await api({ action: "recommend", forWhom: recFor });
+      const cond = recCondition.trim();
+      const r = await api({ action: "recommend", forWhom: recFor, condition: cond || undefined });
       setRecs(Array.isArray(r) ? r : []);
     } catch (e) {
       setRecs([]);
@@ -1503,7 +1505,7 @@ function App() {
     setRecMoreLoading(true);
     try {
       const exclude = recs.map((r) => r.name);
-      const r = await api({ action: "recommend", forWhom: recFor, exclude });
+      const r = await api({ action: "recommend", forWhom: recFor, exclude, condition: recCondition.trim() || undefined });
       if (Array.isArray(r) && r.length) {
         // 중복 이름 제거하며 이어붙이기
         const have = new Set(recs.map((x) => x.name));
@@ -2941,14 +2943,34 @@ function App() {
                   background: "transparent", color: C.goldDim, border: `1px dashed ${C.goldDim}`,
                   cursor: "pointer" }}>+ 친구</button>
             </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 6 }}>
+                조건이 있으면 적어 주세요 <span style={{ color: C.sub }}>(선택 · 예: 이탈리아 와인, 5만원대 위스키)</span>
+              </div>
+              <input value={recCondition} onChange={(e) => setRecCondition(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && loadRecs()}
+                placeholder="예: 이탈리아 레드 와인 / 피트 강한 위스키"
+                style={{ width: "100%", padding: "10px 12px", background: C.panel2,
+                  border: `1px solid ${C.line}`, borderRadius: 10, color: C.text, fontSize: 14,
+                  boxSizing: "border-box" }} />
+              {recCondition.trim() && (
+                <button onClick={() => setRecCondition("")}
+                  style={{ marginTop: 6, background: "none", border: "none", color: C.sub,
+                    fontSize: 12, cursor: "pointer", padding: 0 }}>× 조건 지우기</button>
+              )}
+            </div>
             <button onClick={loadRecs} disabled={recLoading}
               style={{ width: "100%", padding: 14, background: C.gold, color: "#1B160C",
                 border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700,
                 cursor: "pointer", opacity: recLoading ? 0.6 : 1, marginBottom: 16 }}>
               {recLoading ? "고르는 중…" :
-                recFor === "common" ? "다 같이 즐길 술 추천받기" :
-                recFor === "me" ? "내 취향과 비슷한 술 추천받기" :
-                `${recFor} 취향으로 추천받기`}
+                recCondition.trim()
+                  ? (recFor === "common" ? "다 같이 즐길 술 · 조건 추천" :
+                     recFor === "me" ? "내 취향 · 조건에 맞게 추천" :
+                     `${recFor} 취향 · 조건에 맞게 추천`)
+                  : recFor === "common" ? "다 같이 즐길 술 추천받기" :
+                    recFor === "me" ? "내 취향과 비슷한 술 추천받기" :
+                    `${recFor} 취향으로 추천받기`}
             </button>
 
             {/* 취향 일관/비일관 분석 */}
