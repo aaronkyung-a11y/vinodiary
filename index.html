@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.85";
+const APP_VERSION = "v0.86";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -255,7 +255,25 @@ function App() {
   const [recLoading, setRecLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [kindFilter, setKindFilter] = useState("all"); // all | wine | whisky | wishlist
-  const [expandedId, setExpandedId] = useState(null);
+  const [expandedIds, setExpandedIds] = useState(() => new Set()); // 펼쳐진 카드 id들(다중)
+  // 카드 펼침 토글: 열 때 해당 카드 상단이 보이도록 스크롤(제목부터)
+  function toggleExpand(id) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+        setTimeout(() => {
+          try {
+            const el = document.getElementById("cellar-item-" + id);
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+          } catch (e) {}
+        }, 60);
+      }
+      return next;
+    });
+  }
   const [recDetail, setRecDetail] = useState({});
   const [recDone, setRecDone] = useState({}); // 추천별 처리완료 {name: {status, score}}
   const [recDetailLoading, setRecDetailLoading] = useState(null);
@@ -633,12 +651,12 @@ function App() {
     if (!item) return;
     setKindFilter(item.status === "wishlist" ? "wishlist" : "all");
     setTab("cellar");
-    setExpandedId(item.id);
+    setExpandedIds((prev) => new Set(prev).add(item.id));
     setCellarMatch(null);
     setTimeout(() => {
       try {
         const el = document.getElementById("cellar-item-" + item.id);
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
       } catch (e) {}
     }, 250);
   }
@@ -2510,7 +2528,7 @@ function App() {
                 }
               })
               .map((e) => {
-              const open = expandedId === e.id;
+              const open = expandedIds.has(e.id);
               const isWish = e.status === "wishlist";
               return (
               <div key={e.id} id={"cellar-item-" + e.id} style={{ background: C.panel, border: `1px solid ${open ? C.goldDim : C.line}`,
@@ -2527,7 +2545,7 @@ function App() {
                     )}
                   </div>
                   <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
-                    onClick={() => setExpandedId(open ? null : e.id)}>
+                    onClick={() => toggleExpand(e.id)}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span style={{ width: 7, height: 7, borderRadius: "50%",
                         background: e.kind === "whisky" ? C.whisky : C.wine }} />
