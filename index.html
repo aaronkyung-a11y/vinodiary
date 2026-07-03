@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.82";
+const APP_VERSION = "v0.83";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -483,6 +483,11 @@ function App() {
   const myLabel = curProfile || "나";
   // 한 병 분석 메인 평가자(파생): "다 같이"면 본인, 아니면 첫 선택
   const analyzeMain = analyzeForMulti.includes("common") ? "me" : (analyzeForMulti[0] || "me");
+  // "다 같이" 분석 시 상단 점수 = 평가자별 예측 점수의 평균(파생). 없으면 null.
+  const isCommonAnalyze = analyzeForMulti.includes("common");
+  const commonAvg = (isCommonAnalyze && raterScores && raterScores.length)
+    ? Math.round(raterScores.reduce((sum, rs) => sum + (rs.score || 0), 0) / raterScores.length)
+    : null;
 
   // 프로필 전환: 저장 후 데이터 다시 로드
   function switchProfile(p) {
@@ -1065,7 +1070,8 @@ function App() {
       name: result.name,
       kind: result.kind,
       resembles: result.resembles,
-      predictedScore: result.predictedScore,
+      // "다 같이" 분석은 평가자 평균을 예측 점수로 저장(상단 표시와 일치). 아니면 개별 예측치.
+      predictedScore: (commonAvg != null ? commonAvg : result.predictedScore),
       reason: result.reason,
       myScore: isMe ? (score ?? null) : null,
       scores: (!isMe && score != null) ? { [analyzeMain]: score } : {},
@@ -2252,10 +2258,10 @@ function App() {
                   </div>
                 )}
                 <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-                  <ScoreRing value={result.predictedScore} predicted={true} />
+                  <ScoreRing value={commonAvg != null ? commonAvg : result.predictedScore} predicted={true} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1 }}>
-                      {result.kind === "whisky" ? "WHISKY" : "WINE"} · 예측 선호도
+                      {result.kind === "whisky" ? "WHISKY" : "WINE"} · {commonAvg != null ? "평균 예측 선호도" : "예측 선호도"}
                     </div>
                     <div style={{ fontFamily: "Georgia, serif", fontSize: 19, marginTop: 2 }}>
                       {result.name}
@@ -2295,7 +2301,7 @@ function App() {
                   {result.reason}
                 </div>
                 <div style={{ marginTop: 6, fontSize: 11, color: C.sub }}>
-                  신뢰도: {result.confidence} · {analyzeForMulti.includes("common") ? "일반적 예상" : ((analyzeMain === "me" || analyzeMain === "나") ? "내" : analyzeMain + "의")} 예측 점수(추정)
+                  신뢰도: {result.confidence} · {commonAvg != null ? `${raterScores.length}명 평균` : ((analyzeMain === "me" || analyzeMain === "나") ? "내" : analyzeMain + "의")} 예측 점수(추정)
                 </div>
                 {raterScores && raterScores.length > 0 && (
                   <div style={{ marginTop: 14, padding: 12, background: C.panel2,
