@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.87";
+const APP_VERSION = "v0.88";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -246,6 +246,42 @@ function App() {
   const [entries, setEntries] = useState(() => readEntriesCache(getProfile()) || []);
   const [text, setText] = useState("");
   const [imageData, setImageData] = useState(null);
+  const [menuImages, setMenuImages] = useState([]); // 메뉴판 여러 장(base64 배열, 최대 4)
+  const [menuPreviews, setMenuPreviews] = useState([]); // 미리보기 dataURL 배열
+  const MENU_IMG_MAX = 4;
+  // 파일(여러 장) -> 리사이즈 -> menuImages에 추가
+  function onPickMenuImages(e) {
+    const files = Array.from((e.target && e.target.files) || []);
+    if (!files.length) return;
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const maxW = 1600;
+          let w = img.width, h = img.height;
+          if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+          setMenuImages((prev) => prev.length >= MENU_IMG_MAX ? prev : [...prev, dataUrl.split(",")[1]]);
+          setMenuPreviews((prev) => prev.length >= MENU_IMG_MAX ? prev : [...prev, dataUrl]);
+        };
+        img.onerror = () => {
+          setMenuImages((prev) => prev.length >= MENU_IMG_MAX ? prev : [...prev, reader.result.split(",")[1]]);
+          setMenuPreviews((prev) => prev.length >= MENU_IMG_MAX ? prev : [...prev, reader.result]);
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+    if (e.target) e.target.value = ""; // 같은 파일 다시 선택 가능
+  }
+  function removeMenuImage(idx) {
+    setMenuImages((prev) => prev.filter((_, i) => i !== idx));
+    setMenuPreviews((prev) => prev.filter((_, i) => i !== idx));
+  }
   const [imagePreview, setImagePreview] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState(null);
@@ -401,6 +437,8 @@ function App() {
   const [wcLoading, setWcLoading] = useState(false);
   const fileRef = useRef(null);
   const cameraRef = useRef(null);
+  const menuCameraRef = useRef(null);
+  const menuFileRef = useRef(null);
 
   useEffect(() => {
     if (ready) refresh();
@@ -1055,7 +1093,8 @@ function App() {
   }
 
   async function runMenuAnalyze() {
-    if (!text && !imageData) {
+    const imgs = menuImages.length ? menuImages : (imageData ? [imageData] : []);
+    if (!text && !imgs.length) {
       setError("메뉴판·매대 사진을 올리거나 목록을 적어 주세요.");
       return;
     }
@@ -1066,7 +1105,7 @@ function App() {
     try {
       const fw = menuFor.includes("common") ? "common"
         : (menuFor.length === 1 ? menuFor[0] : menuFor);
-      const r = await api({ action: "analyzeMenu", text, imageData, forWhom: fw });
+      const r = await api({ action: "analyzeMenu", text, images: imgs, forWhom: fw });
       if (r.error) throw new Error(r.error);
       if (!r.items || r.items.length === 0) {
         setError("사진에서 술을 읽지 못했어요. 더 선명하게 찍거나 리스트를 텍스트로 붙여넣어 보세요.");
@@ -2102,35 +2141,83 @@ function App() {
                 </div>
               </div>
             )}
-            {imagePreview ? (
-              <div style={{ position: "relative", marginBottom: 14, textAlign: "center" }}>
-                <img src={imagePreview} alt="" style={{ maxHeight: 260, borderRadius: 12,
-                  border: `1px solid ${C.line}` }} />
-                <button onClick={() => { setImageData(null); setImagePreview(null); }}
-                  style={{ position: "absolute", top: 8, right: 8, width: 28, height: 28,
-                    borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff",
-                    border: "none", fontSize: 16, cursor: "pointer" }}>×</button>
+            {analyzeMode === "menu" ? (
+              <div style={{ marginBottom: 14 }}>
+                {menuPreviews.length > 0 && (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                    {menuPreviews.map((src, i) => (
+                      <div key={i} style={{ position: "relative" }}>
+                        <img src={src} alt="" style={{ width: 88, height: 88, objectFit: "cover",
+                          borderRadius: 10, border: `1px solid ${C.line}` }} />
+                        <button onClick={() => removeMenuImage(i)}
+                          style={{ position: "absolute", top: -6, right: -6, width: 22, height: 22,
+                            borderRadius: "50%", background: "rgba(0,0,0,0.75)", color: "#fff",
+                            border: "none", fontSize: 13, cursor: "pointer", lineHeight: 1 }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {menuImages.length < MENU_IMG_MAX ? (
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={() => menuCameraRef.current?.click()}
+                      style={{ flex: 1, padding: "18px 0", background: C.panel,
+                        border: `1px dashed ${C.line}`, borderRadius: 14, cursor: "pointer", color: C.sub }}>
+                      <div style={{ fontSize: 24, marginBottom: 4 }}>📷</div>
+                      <div style={{ fontSize: 12 }}>사진 찍기</div>
+                    </button>
+                    <button onClick={() => menuFileRef.current?.click()}
+                      style={{ flex: 1, padding: "18px 0", background: C.panel,
+                        border: `1px dashed ${C.line}`, borderRadius: 14, cursor: "pointer", color: C.sub }}>
+                      <div style={{ fontSize: 24, marginBottom: 4 }}>🖼️</div>
+                      <div style={{ fontSize: 12 }}>갤러리 (여러 장)</div>
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: C.sub, textAlign: "center", padding: "8px 0" }}>
+                    최대 {MENU_IMG_MAX}장까지 올릴 수 있어요
+                  </div>
+                )}
+                {menuImages.length > 0 && (
+                  <div style={{ fontSize: 11, color: C.goldDim, marginTop: 6 }}>
+                    {menuImages.length}장 선택됨 · 함께 분석해 목록을 합쳐드려요
+                  </div>
+                )}
               </div>
             ) : (
-              <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
-                <button onClick={() => cameraRef.current?.click()}
-                  style={{ flex: 1, padding: "22px 0", background: C.panel,
-                    border: `1px dashed ${C.line}`, borderRadius: 14, cursor: "pointer", color: C.sub }}>
-                  <div style={{ fontSize: 26, marginBottom: 4 }}>📷</div>
-                  <div style={{ fontSize: 13 }}>사진 찍기</div>
-                </button>
-                <button onClick={() => fileRef.current?.click()}
-                  style={{ flex: 1, padding: "22px 0", background: C.panel,
-                    border: `1px dashed ${C.line}`, borderRadius: 14, cursor: "pointer", color: C.sub }}>
-                  <div style={{ fontSize: 26, marginBottom: 4 }}>🖼️</div>
-                  <div style={{ fontSize: 13 }}>갤러리에서 고르기</div>
-                </button>
-              </div>
+              imagePreview ? (
+                <div style={{ position: "relative", marginBottom: 14, textAlign: "center" }}>
+                  <img src={imagePreview} alt="" style={{ maxHeight: 260, borderRadius: 12,
+                    border: `1px solid ${C.line}` }} />
+                  <button onClick={() => { setImageData(null); setImagePreview(null); }}
+                    style={{ position: "absolute", top: 8, right: 8, width: 28, height: 28,
+                      borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff",
+                      border: "none", fontSize: 16, cursor: "pointer" }}>×</button>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+                  <button onClick={() => cameraRef.current?.click()}
+                    style={{ flex: 1, padding: "22px 0", background: C.panel,
+                      border: `1px dashed ${C.line}`, borderRadius: 14, cursor: "pointer", color: C.sub }}>
+                    <div style={{ fontSize: 26, marginBottom: 4 }}>📷</div>
+                    <div style={{ fontSize: 13 }}>사진 찍기</div>
+                  </button>
+                  <button onClick={() => fileRef.current?.click()}
+                    style={{ flex: 1, padding: "22px 0", background: C.panel,
+                      border: `1px dashed ${C.line}`, borderRadius: 14, cursor: "pointer", color: C.sub }}>
+                    <div style={{ fontSize: 26, marginBottom: 4 }}>🖼️</div>
+                    <div style={{ fontSize: 13 }}>갤러리에서 고르기</div>
+                  </button>
+                </div>
+              )
             )}
             <input ref={cameraRef} type="file" accept="image/*" capture="environment"
               onChange={onPickImage} style={{ display: "none" }} />
             <input ref={fileRef} type="file" accept="image/*"
               onChange={onPickImage} style={{ display: "none" }} />
+            <input ref={menuCameraRef} type="file" accept="image/*" capture="environment"
+              onChange={onPickMenuImages} style={{ display: "none" }} />
+            <input ref={menuFileRef} type="file" accept="image/*" multiple
+              onChange={onPickMenuImages} style={{ display: "none" }} />
 
             <textarea value={text} onChange={(e) => setText(e.target.value)}
               placeholder={analyzeMode === "menu"
