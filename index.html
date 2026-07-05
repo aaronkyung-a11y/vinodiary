@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.88";
+const APP_VERSION = "v0.90";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -154,6 +154,69 @@ const AXIS_LABELS = {
 };
 
 // 점수 입력: 슬라이더 + 직접 입력 + 빠른 버튼. 0~100 임의 점수 가능.
+// 와인 외관·산지·품종 시각화(앱이 직접 그림, 저작권 무관).
+// 색은 kind/subtype에서 추정한 대표색이며 실물과 다를 수 있어 '추정 외관'으로 표기.
+function WineVisual({ data }) {
+  const C2 = { gold: "#C9A24B", goldDim: "#8C7637", line: "#3A332A", panel: "#1C1916",
+    panel2: "#24201B", text: "#EAE3D6", sub: "#9A9081" };
+  // subtype/kind -> 대표 와인 색(추정)
+  const subtype = (data.subtype || "").toLowerCase();
+  const kind = (data.kind || "wine").toLowerCase();
+  let wineColor = "#7C2A3A"; // 기본 레드
+  if (kind === "whisky") wineColor = "#A6612A";
+  else if (subtype.indexOf("champagne") >= 0 || subtype.indexOf("white") >= 0) wineColor = "#E8D98A";
+  else if (subtype.indexOf("rose") >= 0) wineColor = "#E8A0A0";
+  else if (subtype.indexOf("sweet") >= 0) wineColor = "#C89A3A";
+  else if (subtype.indexOf("red") >= 0) wineColor = "#6E2233";
+  // grapes 문자열 -> 칩
+  const grapes = (data.grapes || "").split(/[,·]/).map((g) => g.trim()).filter(Boolean).slice(0, 5);
+  return (
+    <div style={{ marginBottom: 12 }}>
+      {/* 잔 속 와인 색(추정) */}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, background: C2.panel,
+        border: `1px solid ${C2.line}`, borderRadius: 12, padding: 14, marginBottom: 10 }}>
+        <svg width="54" height="80" viewBox="0 0 54 80" aria-label="wine glass">
+          <path d="M14 6 h26 v10 a13 13 0 0 1 -26 0 z" fill={wineColor} opacity="0.92" />
+          <path d="M12 4 h30 v12 a15 15 0 0 1 -30 0 z" fill="none" stroke={C2.line} strokeWidth="1.5" />
+          <rect x="26" y="30" width="2" height="34" fill={C2.line} />
+          <rect x="16" y="72" width="22" height="3" rx="1.5" fill={C2.line} />
+        </svg>
+        <div>
+          <div style={{ fontSize: 12, color: C2.goldDim, letterSpacing: 1 }}>외관 (추정)</div>
+          <div style={{ fontSize: 13, color: C2.text, marginTop: 2 }}>
+            {kind === "whisky" ? "위스키" :
+              subtype.indexOf("champagne") >= 0 ? "스파클링/샴페인 계열" :
+              subtype.indexOf("white") >= 0 ? "화이트 와인" :
+              subtype.indexOf("rose") >= 0 ? "로제 와인" :
+              subtype.indexOf("sweet") >= 0 ? "스위트 와인" : "레드 와인"}
+          </div>
+          <div style={{ fontSize: 10, color: C2.sub, marginTop: 3 }}>※ 색은 스타일 기반 추정, 실물과 다를 수 있음</div>
+        </div>
+      </div>
+      {/* 산지 */}
+      {data.region && (
+        <div style={{ background: C2.panel, border: `1px solid ${C2.line}`, borderRadius: 12,
+          padding: "10px 14px", marginBottom: 10 }}>
+          <span style={{ fontSize: 12, color: C2.goldDim }}>🗺️ 산지 </span>
+          <span style={{ fontSize: 13, color: C2.text }}>{data.region}</span>
+        </div>
+      )}
+      {/* 품종 */}
+      {grapes.length > 0 && (
+        <div style={{ background: C2.panel, border: `1px solid ${C2.line}`, borderRadius: 12, padding: "10px 14px" }}>
+          <div style={{ fontSize: 12, color: C2.goldDim, marginBottom: 6 }}>🍇 품종</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {grapes.map((g, i) => (
+              <span key={i} style={{ fontSize: 12, color: C2.text, background: C2.panel2,
+                border: `1px solid ${C2.line}`, padding: "3px 10px", borderRadius: 12 }}>{g}</span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ScoreInput({ onSubmit, accent }) {
   const C2 = { gold: "#C9A24B", goldDim: "#7C6A3A", line: "#3A332A", panel2: "#1F1B15",
     text: "#EAE3D6", sub: "#9A9081" };
@@ -425,6 +488,128 @@ function App() {
   const [menuLoading, setMenuLoading] = useState(false);
   const [candidates, setCandidates] = useState(null); // 단일 분석 후보 목록
   const [candLoading, setCandLoading] = useState(false);
+  // ── Vino Quiz 상태 ──
+  const [quizStage, setQuizStage] = useState("setup"); // setup | intro | playing | result
+  const [quizWineInput, setQuizWineInput] = useState(""); // 텍스트 입력
+  const [quizImageData, setQuizImageData] = useState(null); // 라벨 사진 base64
+  const [quizImagePreview, setQuizImagePreview] = useState(null);
+  const [quizData, setQuizData] = useState(null); // 백엔드 생성 결과
+  const [quizLoading, setQuizLoading] = useState(false);
+  const [quizPlayers, setQuizPlayers] = useState(["me"]); // 참여자
+  const [quizQIndex, setQuizQIndex] = useState(0); // 현재 문항
+  const [quizTurn, setQuizTurn] = useState(0); // 현재 참여자 차례(문항 내)
+  const [quizAnswers, setQuizAnswers] = useState({}); // {playerKey: {qIndex: 선택}}
+  const [quizScores, setQuizScores] = useState({}); // {playerKey: 점수}
+  const [quizSel, setQuizSel] = useState([]); // 현재 선택(아로마 다중) 또는 [level]
+  const quizRef = useRef(null);
+
+  function toggleQuizPlayer(k) {
+    setQuizPlayers((prev) => {
+      if (k === "common") return prev; // 퀴즈는 개인별 채점이라 '다같이' 미사용
+      let next = prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k];
+      if (next.length === 0) next = ["me"];
+      return next;
+    });
+  }
+  function quizPlayerLabel(k) { return (k === "me" || k === "나") ? myLabel : k; }
+
+  async function startQuiz() {
+    const nm = quizWineInput.trim();
+    if (!nm && !quizImageData) { showToast("와인 이름이나 라벨 사진을 넣어 주세요", "error"); return; }
+    setQuizLoading(true);
+    try {
+      const r = await api({ action: "vinoQuiz", name: nm || undefined, imageData: quizImageData || undefined });
+      if (r.error) throw new Error(r.error);
+      if (!r.questions || !r.questions.length) throw new Error("퀴즈를 만들지 못했어요");
+      setQuizData(r);
+      // 점수 초기화
+      const sc = {}; quizPlayers.forEach((p) => (sc[p] = 0));
+      setQuizScores(sc);
+      setQuizAnswers({});
+      setQuizQIndex(0); setQuizTurn(0); setQuizSel([]);
+      setQuizStage("intro");
+    } catch (e) {
+      showToast("퀴즈 생성 실패: " + String(e.message || e).slice(0, 60), "error");
+    } finally {
+      setQuizLoading(false);
+    }
+  }
+
+  // 현재 문항의 정답 판정
+  function quizIsCorrect(q, sel) {
+    if (!q) return false;
+    if (q.type === "aroma") {
+      const ans = Array.isArray(q.answer) ? [...q.answer].sort() : [];
+      const cur = [...sel].sort();
+      return ans.length === cur.length && ans.every((v, i) => v === cur[i]);
+    }
+    // level: 단일 값
+    return sel.length === 1 && sel[0] === q.answer;
+  }
+
+  // 현재 참여자가 답 제출
+  function submitQuizAnswer() {
+    const q = quizData.questions[quizQIndex];
+    const player = quizPlayers[quizTurn];
+    const correct = quizIsCorrect(q, quizSel);
+    setQuizAnswers((prev) => ({ ...prev, [player]: { ...(prev[player] || {}), [quizQIndex]: quizSel } }));
+    if (correct) setQuizScores((prev) => ({ ...prev, [player]: (prev[player] || 0) + 1 }));
+    // 다음 차례: 참여자 순회 후 다음 문항
+    const nextTurn = quizTurn + 1;
+    if (nextTurn < quizPlayers.length) {
+      setQuizTurn(nextTurn); setQuizSel([]);
+    } else {
+      // 모든 참여자가 이 문항 답함 → 다음 문항
+      const nextQ = quizQIndex + 1;
+      if (nextQ < quizData.questions.length) {
+        setQuizQIndex(nextQ); setQuizTurn(0); setQuizSel([]);
+        setTimeout(() => { try { quizRef.current && quizRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {} }, 60);
+      } else {
+        setQuizStage("result");
+      }
+    }
+  }
+
+  function resetQuiz() {
+    setQuizStage("setup"); setQuizData(null); setQuizWineInput("");
+    setQuizImageData(null); setQuizImagePreview(null);
+    setQuizQIndex(0); setQuizTurn(0); setQuizSel([]); setQuizScores({}); setQuizAnswers({});
+  }
+
+  // 셀러에서 퀴즈 시작
+  function quizFromCellar(e) {
+    setTab("quiz");
+    setQuizWineInput(e.name || "");
+    setQuizImageData(null); setQuizImagePreview(e.image || null);
+    setQuizStage("setup");
+    showToast("'" + (e.name || "와인") + "'으로 퀴즈 준비", "done");
+  }
+
+  // 퀴즈 라벨 사진 선택(리사이즈)
+  function onPickQuizImage(ev) {
+    const file = ev.target && ev.target.files && ev.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 1600; let w = img.width, h = img.height;
+        if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+        setQuizImageData(dataUrl.split(",")[1]); setQuizImagePreview(dataUrl);
+      };
+      img.onerror = () => { setQuizImageData(reader.result.split(",")[1]); setQuizImagePreview(reader.result); };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+    if (ev.target) ev.target.value = "";
+  }
+  const quizCameraRef = useRef(null);
+  const quizFileRef = useRef(null);
+
   // 월드컵 상태
   const [wcCategory, setWcCategory] = useState(null); // champagne|white|red|whisky
   const [wcSource, setWcSource] = useState("mix");     // cellar|outside|mix
@@ -2759,6 +2944,15 @@ function App() {
                         ❖ 피드에 공유
                       </button>
                     )}
+                    {/* 퀴즈로 (와인만) */}
+                    {e.kind !== "whisky" && (
+                      <button onClick={() => quizFromCellar(e)}
+                        style={{ marginBottom: 10, marginLeft: 6, padding: "6px 12px", fontSize: 12,
+                          background: "transparent", color: C.gold, border: `1px solid ${C.goldDim}`,
+                          borderRadius: 8, cursor: "pointer" }}>
+                        ◈ 퀴즈
+                      </button>
+                    )}
                     <button onClick={() => editEntry === e.id ? setEditEntry(null) : startEditEntry(e)}
                       style={{ marginBottom: 10, marginLeft: 6, padding: "6px 12px", fontSize: 12,
                         background: "transparent", color: C.sub, border: `1px solid ${C.line}`,
@@ -3377,156 +3571,241 @@ function App() {
           </section>
         )}
 
-        {tab === "worldcup" && (
+        {tab === "quiz" && (
           <section>
-            {/* 우승 결과 화면 */}
-            {wcChampion ? (
-              <div style={{ textAlign: "center", paddingTop: 20 }}>
-                <div style={{ fontSize: 12, letterSpacing: 3, color: C.goldDim }}>WINNER</div>
-                <div style={{ fontSize: 44, margin: "10px 0" }}>♛</div>
-                <div style={{ fontFamily: "Georgia, serif", fontSize: 24, color: C.gold }}>
-                  {wcChampion.name}
+            {/* 반응형: 넓은 화면(태블릿 가로)에서 2단 */}
+            <style>{`
+              @media (min-width: 820px) {
+                .quiz-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+                .quiz-wide { max-width: 1100px; margin: 0 auto; }
+              }
+            `}</style>
+            <div className="quiz-wide">
+
+            {/* 1) 셋업: 와인 지정 + 참여자 */}
+            {quizStage === "setup" && (
+              <div>
+                <div style={{ fontFamily: "Georgia, serif", fontSize: 22, color: C.gold, marginBottom: 4 }}>Vino Quiz</div>
+                <div style={{ fontSize: 13, color: C.sub, marginBottom: 16 }}>오늘 마실 와인으로 향·맛을 맞혀 보세요.</div>
+
+                {quizImagePreview ? (
+                  <div style={{ position: "relative", marginBottom: 12, textAlign: "center" }}>
+                    <img src={quizImagePreview} alt="" style={{ maxHeight: 240, borderRadius: 12, border: `1px solid ${C.line}` }} onError={imgFallback} />
+                    <button onClick={() => { setQuizImageData(null); setQuizImagePreview(null); }}
+                      style={{ position: "absolute", top: 8, right: 8, width: 28, height: 28, borderRadius: "50%",
+                        background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", fontSize: 16, cursor: "pointer" }}>×</button>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+                    <button onClick={() => quizCameraRef.current?.click()}
+                      style={{ flex: 1, padding: "18px 0", background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 14, cursor: "pointer", color: C.sub }}>
+                      <div style={{ fontSize: 24, marginBottom: 4 }}>📷</div><div style={{ fontSize: 12 }}>라벨 찍기</div>
+                    </button>
+                    <button onClick={() => quizFileRef.current?.click()}
+                      style={{ flex: 1, padding: "18px 0", background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 14, cursor: "pointer", color: C.sub }}>
+                      <div style={{ fontSize: 24, marginBottom: 4 }}>🖼️</div><div style={{ fontSize: 12 }}>갤러리</div>
+                    </button>
+                  </div>
+                )}
+                <input ref={quizCameraRef} type="file" accept="image/*" capture="environment" onChange={onPickQuizImage} style={{ display: "none" }} />
+                <input ref={quizFileRef} type="file" accept="image/*" onChange={onPickQuizImage} style={{ display: "none" }} />
+
+                <input value={quizWineInput} onChange={(e) => setQuizWineInput(e.target.value)}
+                  placeholder="또는 와인 이름 입력 (예: Barolo, Cloudy Bay)"
+                  style={{ width: "100%", boxSizing: "border-box", padding: "12px 14px", background: C.panel,
+                    border: `1px solid ${C.line}`, borderRadius: 12, color: C.text, fontSize: 14, marginBottom: 16 }} />
+
+                <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 6 }}>참여자 (각자 점수 매김)</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 20 }}>
+                  {[["me", myLabel]].concat(raters.map((n) => [n, n])).map(([k, label]) => {
+                    const sel = quizPlayers.includes(k);
+                    return (
+                      <button key={k} onClick={() => toggleQuizPlayer(k)}
+                        style={{ padding: "6px 14px", fontSize: 13, borderRadius: 16, cursor: "pointer",
+                          background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
+                          border: `1px solid ${sel ? C.gold : C.line}`, fontWeight: sel ? 700 : 400 }}>
+                        {sel ? "✓ " : ""}{label}
+                      </button>
+                    );
+                  })}
+                  <button onClick={() => addFriend((nm) => toggleQuizPlayer(nm))}
+                    style={{ padding: "6px 14px", fontSize: 13, borderRadius: 16, background: "transparent",
+                      color: C.goldDim, border: `1px dashed ${C.goldDim}`, cursor: "pointer" }}>+ 친구</button>
                 </div>
-                {wcChampion.why && (
-                  <div style={{ fontSize: 13, color: C.sub, marginTop: 8, lineHeight: 1.5,
-                    maxWidth: 360, marginLeft: "auto", marginRight: "auto" }}>{wcChampion.why}</div>
-                )}
-                {wcRunnerUp && (
-                  <div style={{ fontSize: 12, color: C.sub, marginTop: 16 }}>
-                    준우승 · {wcRunnerUp.name}
-                  </div>
-                )}
-                {!wcChampion.fromCellar && (
-                  <div style={{ fontSize: 12, color: C.goldDim, marginTop: 8 }}>
-                    위시리스트에 담았어요
-                  </div>
-                )}
-                <button onClick={resetWorldcup}
-                  style={{ marginTop: 24, padding: "12px 24px", background: C.gold, color: "#1B160C",
-                    border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-                  다시 하기
+
+                <button onClick={startQuiz} disabled={quizLoading}
+                  style={{ width: "100%", padding: 14, background: C.gold, color: "#1B160C", border: "none",
+                    borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: "pointer", opacity: quizLoading ? 0.6 : 1 }}>
+                  {quizLoading ? "와인 공부 중…" : "퀴즈 시작"}
                 </button>
               </div>
-            ) : wcRound ? (
-              /* 대결 화면 */
-              (() => {
-                const a = wcRound[wcPair * 2];
-                const b = wcRound[wcPair * 2 + 1];
-                const totalPairs = Math.floor(wcRound.length / 2);
-                const roundName = wcRound.length >= 16 ? "16강" : wcRound.length >= 8 ? "8강"
-                  : wcRound.length >= 4 ? "4강" : "결승";
-                if (!b) { // 홀수 부전승 처리
-                  setTimeout(() => pickWinner(a), 0);
-                  return null;
-                }
-                return (
-                  <div>
-                    <div style={{ textAlign: "center", fontSize: 12, color: C.goldDim,
-                      letterSpacing: 2, marginBottom: 4 }}>
-                      {roundName} · {wcPair + 1} / {totalPairs}
-                    </div>
-                    <div style={{ textAlign: "center", fontSize: 11, color: C.sub, marginBottom: 20 }}>
-                      더 끌리는 쪽을 고르세요
-                    </div>
-                    {[a, b].map((c, i) => (
-                      <div key={i}>
-                        <button onClick={() => pickWinner(c)}
-                          style={{ width: "100%", padding: "22px 18px", marginBottom: i === 0 ? 0 : 0,
-                            background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16,
-                            cursor: "pointer", textAlign: "left", color: C.text }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ width: 7, height: 7, borderRadius: "50%",
-                              background: c.kind === "whisky" ? C.whisky : C.wine }} />
-                            <span style={{ fontSize: 10, color: C.sub, letterSpacing: 1 }}>
-                              {c.fromCellar ? "내 셀러" : "추천"}
-                            </span>
-                          </div>
-                          <div style={{ fontFamily: "Georgia, serif", fontSize: 19, margin: "6px 0" }}>
-                            {c.name}
-                            {!c.fromCellar && <OwnedBadge name={c.name} />}
-                          </div>
-                          {c.why && <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.5 }}>{c.why}</div>}
-                        </button>
-                        {i === 0 && (
-                          <div style={{ textAlign: "center", color: C.goldDim, fontSize: 12,
-                            margin: "10px 0", fontStyle: "italic" }}>VS</div>
-                        )}
+            )}
+
+            {/* 2) 인트로: 와인 소개 */}
+            {quizStage === "intro" && quizData && (
+              <div className="quiz-2col">
+                <div>
+                  {/* 위키미디어 대표 이미지(있으면). 없으면 산지·품종 그래픽으로 대체 */}
+                  {quizData.wikiImage && quizData.wikiImage.image ? (
+                    <div style={{ marginBottom: 12 }}>
+                      <img src={quizData.wikiImage.image} alt="" style={{ width: "100%", maxHeight: 320,
+                        objectFit: "contain", background: C.panel, borderRadius: 12, border: `1px solid ${C.line}` }}
+                        onError={imgFallback} />
+                      <div style={{ fontSize: 10, color: C.sub, marginTop: 4, lineHeight: 1.4 }}>
+                        대표 이미지 · {quizData.wikiImage.source}
+                        {quizData.wikiImage.license ? " · " + quizData.wikiImage.license : ""}
+                        {quizData.wikiImage.artist ? " · " + quizData.wikiImage.artist : ""}
+                        <br />※ 이름 기준 검색 결과로, 해당 생산자·빈티지의 실제 병과 다를 수 있어요.
                       </div>
-                    ))}
-                    <button onClick={resetWorldcup}
-                      style={{ width: "100%", marginTop: 16, padding: "10px", background: "transparent",
-                        color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 12,
-                        cursor: "pointer" }}>그만두기</button>
+                    </div>
+                  ) : quizImagePreview ? (
+                    <img src={quizImagePreview} alt="" style={{ width: "100%", maxHeight: 320, objectFit: "cover",
+                      borderRadius: 12, border: `1px solid ${C.line}`, marginBottom: 12 }} onError={imgFallback} />
+                  ) : null}
+                  {/* 산지·품종·외관 시각화(앱이 그림) — 항상 표시 */}
+                  <WineVisual data={quizData} />
+                </div>
+                <div>
+                  <div style={{ fontFamily: "Georgia, serif", fontSize: 24, color: C.gold }}>{quizData.wineName}</div>
+                  {quizData.nameKo && <div style={{ fontSize: 14, color: C.sub, marginBottom: 8 }}>{quizData.nameKo}</div>}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "8px 0 14px" }}>
+                    {quizData.region && <span style={{ fontSize: 12, color: C.text, background: C.panel2, padding: "4px 10px", borderRadius: 10 }}>📍 {quizData.region}</span>}
+                    {quizData.grapes && <span style={{ fontSize: 12, color: C.text, background: C.panel2, padding: "4px 10px", borderRadius: 10 }}>🍇 {quizData.grapes}</span>}
                   </div>
-                );
-              })()
-            ) : (
-              /* 설정 화면 */
-              <div>
-                <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 8 }}>
-                  카테고리
-                </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
-                  {[["champagne", "샴페인"], ["white", "화이트"], ["red", "레드"], ["whisky", "위스키"]].map(([k, label]) => {
-                    const sel = wcCategory === k;
-                    return (
-                      <button key={k} onClick={() => setWcCategory(k)}
-                        style={{ flex: "1 0 22%", padding: "12px 0", fontSize: 13,
-                          background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
-                          border: `1px solid ${sel ? C.gold : C.line}`, borderRadius: 10,
-                          cursor: "pointer", fontWeight: sel ? 700 : 400 }}>{label}</button>
-                    );
-                  })}
-                </div>
-
-                <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 8 }}>
-                  후보 구성
-                </div>
-                <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
-                  {[["cellar", "셀러만"], ["outside", "셀러밖"], ["mix", "혼합"]].map(([k, label]) => {
-                    const sel = wcSource === k;
-                    return (
-                      <button key={k} onClick={() => setWcSource(k)}
-                        style={{ flex: 1, padding: "10px 0", fontSize: 13,
-                          background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
-                          border: `1px solid ${sel ? C.gold : C.line}`, borderRadius: 10,
-                          cursor: "pointer", fontWeight: sel ? 700 : 400 }}>{label}</button>
-                    );
-                  })}
-                </div>
-
-                <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 8 }}>
-                  규모
-                </div>
-                <div style={{ display: "flex", gap: 6, marginBottom: 22 }}>
-                  {[4, 8, 16].map((n) => {
-                    const sel = wcSize === n;
-                    return (
-                      <button key={n} onClick={() => setWcSize(n)}
-                        style={{ flex: 1, padding: "10px 0", fontSize: 13,
-                          background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
-                          border: `1px solid ${sel ? C.gold : C.line}`, borderRadius: 10,
-                          cursor: "pointer", fontWeight: sel ? 700 : 400 }}>{n}강</button>
-                    );
-                  })}
-                </div>
-
-                <button onClick={startWorldcup} disabled={!wcCategory || wcLoading}
-                  style={{ width: "100%", padding: 15, background: wcCategory ? C.gold : C.panel2,
-                    color: wcCategory ? "#1B160C" : C.sub, border: "none", borderRadius: 12,
-                    fontSize: 15, fontWeight: 700, cursor: wcCategory ? "pointer" : "default",
-                    opacity: wcLoading ? 0.6 : 1 }}>
-                  {wcLoading ? "후보 준비 중…" : "월드컵 시작"}
-                </button>
-                {error && (
-                  <div style={{ color: C.gold, fontSize: 13, marginTop: 12, textAlign: "center" }}>{error}</div>
-                )}
-                <div style={{ fontSize: 12, color: C.sub, marginTop: 16, lineHeight: 1.6 }}>
-                  둘 중 더 끌리는 술을 골라 토너먼트로 최애를 가립니다. 우승작이 셀러에 없으면
-                  위시리스트에 담아둬요.
+                  <div style={{ fontSize: 14, color: C.text, lineHeight: 1.7 }}>{quizData.intro}</div>
+                  {quizData.estimated && <div style={{ fontSize: 11, color: C.sub, marginTop: 8 }}>※ 일부 내용은 일반적 특성에 근거한 추정입니다</div>}
+                  <button onClick={() => { setQuizStage("playing"); setQuizQIndex(0); setQuizTurn(0); setQuizSel([]); }}
+                    style={{ marginTop: 20, width: "100%", padding: 14, background: C.gold, color: "#1B160C",
+                      border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>
+                    퀴즈 풀기 ({quizData.questions.length}문제)
+                  </button>
                 </div>
               </div>
             )}
+
+            {/* 3) 플레이 */}
+            {quizStage === "playing" && quizData && (() => {
+              const q = quizData.questions[quizQIndex];
+              const player = quizPlayers[quizTurn];
+              const isAroma = q.type === "aroma";
+              const levelLabels = ["매우 낮음", "낮음", "보통", "높음", "매우 높음"];
+              return (
+                <div ref={quizRef}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, color: C.goldDim }}>문제 {quizQIndex + 1} / {quizData.questions.length}</span>
+                    {quizPlayers.length > 1 && (
+                      <span style={{ fontSize: 12, color: C.gold, fontWeight: 700 }}>{quizPlayerLabel(player)} 차례</span>
+                    )}
+                  </div>
+                  <div style={{ height: 4, background: C.panel2, borderRadius: 2, marginBottom: 16, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${((quizQIndex) / quizData.questions.length) * 100}%`, background: C.gold }} />
+                  </div>
+
+                  <div style={{ fontSize: 18, color: C.text, fontWeight: 600, marginBottom: 4 }}>
+                    {isAroma ? "🌸 " : "👅 "}{q.q}
+                  </div>
+                  {!isAroma && q.axis && <div style={{ fontSize: 12, color: C.sub, marginBottom: 14 }}>{q.axis}</div>}
+
+                  {isAroma ? (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+                      {q.options.map((opt, i) => {
+                        const sel = quizSel.includes(i);
+                        return (
+                          <button key={i} onClick={() => setQuizSel((prev) => prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i])}
+                            style={{ padding: "10px 16px", fontSize: 14, borderRadius: 20, cursor: "pointer",
+                              background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.text,
+                              border: `1px solid ${sel ? C.gold : C.line}`, fontWeight: sel ? 700 : 400 }}>
+                            {opt}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+                      {[1, 2, 3, 4, 5].map((lv) => {
+                        const sel = quizSel[0] === lv;
+                        return (
+                          <button key={lv} onClick={() => setQuizSel([lv])}
+                            style={{ flex: 1, padding: "14px 0", fontSize: 13, borderRadius: 12, cursor: "pointer",
+                              background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
+                              border: `1px solid ${sel ? C.gold : C.line}`, fontWeight: sel ? 700 : 400 }}>
+                            <div style={{ fontSize: 16 }}>{lv}</div>
+                            <div style={{ fontSize: 10, marginTop: 2 }}>{levelLabels[lv - 1]}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <button onClick={submitQuizAnswer} disabled={quizSel.length === 0}
+                    style={{ marginTop: 24, width: "100%", padding: 14, background: quizSel.length ? C.gold : C.panel2,
+                      color: quizSel.length ? "#1B160C" : C.sub, border: "none", borderRadius: 12, fontSize: 15,
+                      fontWeight: 700, cursor: quizSel.length ? "pointer" : "default" }}>
+                    {quizTurn + 1 < quizPlayers.length ? "다음 사람" : (quizQIndex + 1 < quizData.questions.length ? "다음 문제" : "결과 보기")}
+                  </button>
+                </div>
+              );
+            })()}
+
+            {/* 4) 결과 + 마무리 설명 */}
+            {quizStage === "result" && quizData && (
+              <div className="quiz-2col">
+                <div>
+                  <div style={{ fontFamily: "Georgia, serif", fontSize: 20, color: C.gold, marginBottom: 12 }}>결과</div>
+                  {[...quizPlayers].sort((a, b) => (quizScores[b] || 0) - (quizScores[a] || 0)).map((p, i) => (
+                    <div key={p} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                      padding: "12px 14px", marginBottom: 8, borderRadius: 12,
+                      background: i === 0 ? C.panel2 : C.panel, border: `1px solid ${i === 0 ? C.gold : C.line}` }}>
+                      <span style={{ color: C.text, fontWeight: i === 0 ? 700 : 400 }}>
+                        {i === 0 ? "🏆 " : `${i + 1}. `}{quizPlayerLabel(p)}
+                      </span>
+                      <span style={{ color: C.gold, fontFamily: "Georgia, serif", fontWeight: 700 }}>
+                        {quizScores[p] || 0} / {quizData.questions.length}
+                      </span>
+                    </div>
+                  ))}
+                  {/* 문항별 정답 복습 */}
+                  <div style={{ marginTop: 16 }}>
+                    <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 8 }}>정답 & 해설</div>
+                    {quizData.questions.map((q, qi) => {
+                      const ansText = q.type === "aroma"
+                        ? (q.answer || []).map((idx) => q.options[idx]).join(", ")
+                        : ["매우 낮음", "낮음", "보통", "높음", "매우 높음"][q.answer - 1];
+                      return (
+                        <div key={qi} style={{ marginBottom: 10, fontSize: 13 }}>
+                          <div style={{ color: C.text }}>{qi + 1}. {q.type === "aroma" ? "향" : q.axis} — <span style={{ color: C.gold }}>{ansText}</span></div>
+                          {q.explain && <div style={{ color: C.sub, fontSize: 12, marginTop: 2 }}>{q.explain}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontFamily: "Georgia, serif", fontSize: 20, color: C.gold, marginBottom: 12 }}>이 와인 이해하기</div>
+                  <div style={{ fontSize: 14, color: C.text, lineHeight: 1.8 }}>{quizData.summary}</div>
+                  {quizData.servingTip && (
+                    <div style={{ marginTop: 12, padding: "10px 14px", background: C.panel2, borderRadius: 10 }}>
+                      <span style={{ color: C.goldDim, fontSize: 12 }}>🌡️ 서빙 </span>
+                      <span style={{ color: C.text, fontSize: 13 }}>{quizData.servingTip}</span>
+                    </div>
+                  )}
+                  {quizData.pairing && (
+                    <div style={{ marginTop: 8, padding: "10px 14px", background: C.panel2, borderRadius: 10 }}>
+                      <span style={{ color: C.goldDim, fontSize: 12 }}>🍽️ 페어링 </span>
+                      <span style={{ color: C.text, fontSize: 13 }}>{quizData.pairing}</span>
+                    </div>
+                  )}
+                  {quizData.estimated && <div style={{ fontSize: 11, color: C.sub, marginTop: 10 }}>※ 일부 내용은 일반적 특성에 근거한 추정입니다</div>}
+                  <button onClick={resetQuiz}
+                    style={{ marginTop: 20, width: "100%", padding: 14, background: "transparent", color: C.gold,
+                      border: `1px solid ${C.gold}`, borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                    새 퀴즈
+                  </button>
+                </div>
+              </div>
+            )}
+
+            </div>
           </section>
         )}
       </main>
@@ -3574,7 +3853,7 @@ function App() {
 
       <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.panel,
         borderTop: `1px solid ${C.line}`, display: "flex", maxWidth: 560, margin: "0 auto" }}>
-        {[["feed", "피드", "❖"], ["add", "분석", "✦"], ["cellar", "셀러", "▤"], ["recommend", "추천", "✧"], ["worldcup", "월드컵", "♛"]].map(
+        {[["feed", "피드", "❖"], ["add", "분석", "✦"], ["cellar", "셀러", "▤"], ["recommend", "추천", "✧"], ["quiz", "퀴즈", "◈"]].map(
           ([id, label, icon]) => (
             <button key={id} onClick={() => setTab(id)}
               style={{ flex: 1, padding: "14px 0", background: "none", border: "none",
