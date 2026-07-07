@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.93";
+const APP_VERSION = "v0.94";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -121,18 +121,38 @@ function saveProfiles(arr) {
   try { localStorage.setItem(PROFILES_LS, JSON.stringify(arr)); } catch (e) {}
 }
 
-// 산지 문자열로 정적 지도 파일명 매칭(방법1). 확인될 때만, 아니면 null.
-// 마을 좌표는 실제값, 경계는 주 단위 개략도(정밀도 한계 있음, 추정 아님).
-function regionMapFor(info, name) {
+// === 샴페인 지역 SVG 지도 데이터(앱 내장) ===
+// 경계: Natural Earth(퍼블릭 도메인) 마른 주, viewBox 1000x750로 사전 변환.
+// 마을 좌표: OpenStreetMap에서 수집한 실제 좌표(추정 아님). 아래 목록에 있는 마을만 별 표시.
+const CHAMPAGNE_MAP = {
+  path: "M936.4,583.0 L866.2,582.7 L829.8,594.0 L813.7,620.2 L849.6,619.7 L859.1,643.9 L815.0,657.3 L811.1,672.2 L820.3,700.5 L755.8,705.4 L716.0,691.7 L674.9,707.7 L563.8,645.1 L559.6,635.6 L565.8,596.3 L557.6,575.5 L489.6,569.4 L444.7,583.0 L423.7,581.8 L411.8,602.5 L385.0,609.6 L306.2,676.1 L294.5,710.0 L238.2,699.0 L220.2,677.4 L211.9,687.2 L175.1,698.2 L168.5,669.5 L155.2,670.2 L135.8,642.4 L120.2,643.4 L99.7,620.4 L76.1,621.4 L73.7,606.3 L78.4,588.5 L71.6,559.1 L54.4,539.3 L41.3,538.8 L40.0,531.9 L57.2,508.8 L46.4,495.0 L48.1,491.6 L78.7,488.5 L100.7,437.5 L140.6,400.2 L149.8,380.8 L194.8,337.8 L195.1,331.1 L187.1,324.5 L157.5,325.4 L146.6,318.2 L147.5,303.7 L169.8,280.9 L169.4,244.4 L182.7,235.1 L224.5,236.1 L237.4,220.6 L214.2,196.2 L197.4,189.9 L192.0,142.1 L183.2,119.4 L213.1,102.9 L299.6,85.6 L300.5,67.4 L311.1,60.0 L331.6,61.0 L359.2,74.4 L377.4,67.8 L402.5,74.5 L409.9,59.2 L410.6,40.0 L489.9,49.6 L567.2,107.2 L590.0,107.3 L611.8,135.2 L631.5,139.7 L703.6,133.4 L736.8,170.9 L785.4,157.7 L848.9,170.1 L888.9,156.4 L907.4,156.1 L928.9,170.4 L929.6,190.1 L917.4,211.7 L915.8,224.0 L932.3,271.4 L936.2,321.5 L955.8,333.6 L960.0,345.0 L952.2,356.2 L951.6,383.4 L945.6,399.2 L910.1,413.7 L900.9,427.3 L896.6,450.4 L901.6,477.1 L888.6,498.0 L891.8,508.7 L931.2,539.6 L937.3,560.8 L936.4,583.0 Z",
+  villages: [{"name": "Ambonnay", "x": 476.4, "y": 290.8, "al": ["ambonnay", "앙보네"]}, {"name": "Bouzy", "x": 462.5, "y": 287.6, "al": ["bouzy", "부지"]}, {"name": "Verzenay", "x": 460.6, "y": 228.4, "al": ["verzenay", "베르즈네"]}, {"name": "Verzy", "x": 471.6, "y": 237.8, "al": ["verzy", "베르지"]}, {"name": "Mailly-Champagne", "x": 442.1, "y": 229.7, "al": ["mailly", "마이"]}, {"name": "Sillery", "x": 452.9, "y": 199.8, "al": ["sillery", "실르리"]}, {"name": "Beaumont-sur-Vesle", "x": 483.1, "y": 217.8, "al": ["beaumont-sur-vesle", "보몽"]}, {"name": "Puisieulx", "x": 443.5, "y": 202.7, "al": ["puisieulx"]}, {"name": "Louvois", "x": 449.4, "y": 263.2, "al": ["louvois", "루부아"]}, {"name": "Tauxières-Mutry", "x": 436.7, "y": 280.1, "al": ["tauxieres", "tauxières", "토시에르"]}, {"name": "Aÿ", "x": 378.0, "y": 302.3, "al": ["aÿ", "ay ", "아이", "aÿ-champagne", "ay-champagne"]}, {"name": "Mareuil-sur-Aÿ", "x": 401.5, "y": 315.4, "al": ["mareuil", "마뢰이"]}, {"name": "Bisseuil", "x": 429.1, "y": 313.4, "al": ["bisseuil"]}, {"name": "Cramant", "x": 375.2, "y": 358.9, "al": ["cramant", "크라망"]}, {"name": "Avize", "x": 385.3, "y": 370.7, "al": ["avize", "아비즈"]}, {"name": "Oger", "x": 384.6, "y": 384.2, "al": ["oger", "오제"]}, {"name": "Le Mesnil-sur-Oger", "x": 391.5, "y": 390.4, "al": ["mesnil", "므닐", "le mesnil"]}, {"name": "Chouilly", "x": 384.9, "y": 329.7, "al": ["chouilly", "슈이"]}, {"name": "Oiry", "x": 406.1, "y": 331.8, "al": ["oiry"]}, {"name": "Épernay", "x": 353.2, "y": 317.2, "al": ["epernay", "épernay", "에페르네"]}, {"name": "Cumières", "x": 338.3, "y": 294.8, "al": ["cumieres", "cumières", "퀴미에르"]}, {"name": "Hautvillers", "x": 347.8, "y": 286.5, "al": ["hautvillers", "오빌레"]}, {"name": "Dizy", "x": 360.6, "y": 300.5, "al": ["dizy", "디지"]}, {"name": "Reims", "x": 397.5, "y": 153.6, "al": ["reims", "랭스"]}, {"name": "Trigny", "x": 320.7, "y": 119.5, "al": ["trigny", "트리니"]}, {"name": "Châlons-en-Champagne", "x": 583.3, "y": 382.6, "al": ["chalons", "châlons", "샬롱"]}]
+};
+// 샴페인 지역인지 판정
+function isChampagneRegion(info, name) {
   const hay = (
     (info && info.region ? info.region : "") + " " +
     (info && info.caskRegion ? info.caskRegion : "") + " " +
     (name || "")
   ).toLowerCase();
-  if (/champagne|champagn|샹파뉴|샴페인|reims|epernay|ambonnay|bouzy|verzenay|avize|marne|montagne de reims|cote des blancs|côte des blancs/.test(hay)) {
-    return "champagne_map.png";
+  return /champagne|champagn|샹파뉴|샴페인|reims|epernay|épernay|ambonnay|bouzy|verzenay|avize|cramant|montagne de reims|cote des blancs|côte des blancs|vallee de la marne|marne/.test(hay);
+}
+// 산지 문자열에서 '검증된 좌표가 있는' 마을을 찾음. 없으면 null(추정 금지).
+function matchVillage(info, name) {
+  const hay = (
+    (info && info.region ? info.region : "") + " " +
+    (name || "")
+  ).toLowerCase();
+  let best = null;
+  for (const v of CHAMPAGNE_MAP.villages) {
+    for (const a of v.al) {
+      if (a && hay.indexOf(a) >= 0) {
+        // 더 긴(구체적인) 별칭 우선
+        if (!best || a.length > best._len) best = { name: v.name, x: v.x, y: v.y, _len: a.length };
+      }
+    }
   }
-  return null;
+  return best;
 }
 
 async function api(payload) {
@@ -786,14 +806,44 @@ function App() {
   }
 
   // Drive 이미지 표시 실패 시 다른 형식으로 폴백 후 그래도 실패하면 숨김
-  // 산지 지도 이미지 블록(공용). src 없으면 아무것도 안 그림.
-  function RegionMap({ src }) {
-    if (!src) return null;
+  // 산지 지도(앱이 SVG로 그림). 샴페인일 때만. 그 술 산지 마을이 검증 좌표에 있으면 별 표시.
+  function RegionMap({ info, name }) {
+    if (!isChampagneRegion(info, name)) return null;
+    const hit = matchVillage(info, name); // {name,x,y} 또는 null
+    // 배경에 늘 표시할 참조 마을(대표 몇 곳)
+    const refNames = ["Reims", "Épernay", "Ambonnay", "Avize", "Aÿ"];
+    const refs = CHAMPAGNE_MAP.villages.filter((v) => refNames.includes(v.name));
+    const koOf = { "Reims": "랭스", "Épernay": "에페르네", "Ambonnay": "앙보네", "Avize": "아비즈", "Aÿ": "아이" };
     return (
-      <div style={{ marginTop: 10 }}>
-        <img src={src} alt="산지 지도" style={{ width: "100%", borderRadius: 10,
-          border: `1px solid ${C.line}` }}
-          onError={(e) => { e.target.parentNode.style.display = "none"; }} />
+      <div style={{ marginTop: 10, background: "#EEF4F0", borderRadius: 10,
+        border: `1px solid ${C.line}`, padding: 8 }}>
+        <div style={{ fontSize: 11, color: C.goldDim, fontWeight: 700, marginBottom: 4 }}>
+          샹파뉴 지역 · 프랑스 마른 주
+        </div>
+        <svg viewBox="0 0 1000 750" style={{ width: "100%", display: "block" }}>
+          <path d={CHAMPAGNE_MAP.path} fill="#E4EAD9" stroke="#B9A96E" strokeWidth="3" />
+          {/* 참조 마을(작게) */}
+          {refs.map((v) => (
+            <g key={v.name}>
+              <circle cx={v.x} cy={v.y} r="7" fill="#8C7637" />
+              <text x={v.x + 12} y={v.y + 5} fontSize="20" fill="#241F18">{koOf[v.name] || v.name}</text>
+            </g>
+          ))}
+          {/* 이 술의 산지 마을 별(검증 좌표에 있을 때만) */}
+          {hit && (
+            <g>
+              <text x={hit.x} y={hit.y + 9} fontSize="34" fill="#7C2A3A" textAnchor="middle">★</text>
+              <text x={hit.x + 20} y={hit.y - 8} fontSize="22" fontWeight="700" fill="#7C2A3A">
+                {hit.name} · 이 술의 산지
+              </text>
+            </g>
+          )}
+        </svg>
+        <div style={{ fontSize: 10, color: C.sub, marginTop: 4 }}>
+          {hit
+            ? "★ 산지 마을은 실제 좌표. 경계는 마른 주 개략도."
+            : "산지 마을을 특정하지 못해 지역만 표시(별 없음). 경계는 마른 주 개략도."}
+        </div>
       </div>
     );
   }
@@ -2632,7 +2682,7 @@ function App() {
                       {result.infoUncertain && (
                         <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>※ 일부 추정 정보예요</div>
                       )}
-                      <RegionMap src={regionMapFor(result.info, result.name)} />
+                      <RegionMap info={result.info} name={result.name} />
                     </div>
                   );
                 })()}
@@ -2917,7 +2967,7 @@ function App() {
                           {e.infoUncertain && (
                             <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>※ 일부 추정 정보예요</div>
                           )}
-                          <RegionMap src={regionMapFor(e.info, e.name)} />
+                          <RegionMap info={e.info} name={e.name} />
                         </div>
                       );
                     })()}
@@ -3682,14 +3732,8 @@ function App() {
                     <img src={quizImagePreview} alt="" style={{ width: "100%", maxHeight: 320, objectFit: "cover",
                       borderRadius: 12, border: `1px solid ${C.line}`, marginBottom: 12 }} onError={imgFallback} />
                   ) : null}
-                  {/* 정적 지역 지도(방법1): 산지가 확인될 때만 표시 */}
-                  {quizData.regionMap && (
-                    <div style={{ marginBottom: 12 }}>
-                      <img src={quizData.regionMap} alt="산지 지도" style={{ width: "100%",
-                        borderRadius: 12, border: `1px solid ${C.line}` }}
-                        onError={(e) => { e.target.parentNode.style.display = "none"; }} />
-                    </div>
-                  )}
+                  {/* 산지 지도(SVG): 샴페인이면 표시, 산지 마을 검증되면 별 */}
+                  <RegionMap info={{ region: quizData.region }} name={quizData.wineName || quizData.nameKo} />
                   {/* 산지·품종 시각화 */}
                   <WineVisual data={quizData} />
                 </div>
