@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.95";
+const APP_VERSION = "v0.96";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -826,19 +826,20 @@ function App() {
     // 별(산지)이 참조와 겹치면 참조에서 빼고 별로만 표시
     if (hit) refs = refs.filter((v) => v.name !== hit.name);
 
-    // 라벨을 좌/우 여백에 세로로 배분하고 점까지 지시선. viewBox를 좌우로 넓혀 여백 확보.
-    const VB_L = -420, VB_R = 1420, VB_W = VB_R - VB_L; // 넓힌 viewBox 가로
+    // 라벨을 좌/우 여백에 세로로 배분하고 점까지 지시선.
+    // viewBox 여백을 적게(글씨가 화면에서 커 보이도록). 폰트도 대폭 확대.
+    const VB_L = -280, VB_R = 1280, VB_W = VB_R - VB_L;
     const labels = refs.map((v) => ({ ...v }));
-    if (hit) labels.push({ name: hit.name, x: hit.x, y: hit.y, ko: hit.name + " · 이 술의 산지", star: true });
+    if (hit) labels.push({ name: hit.name, x: hit.x, y: hit.y, ko: hit.name, star: true });
     // 좌/우 분배: 점 x가 420보다 크면 오른쪽, 아니면 왼쪽
     const left = labels.filter((l) => l.x <= 420).sort((a, b) => a.y - b.y);
     const right = labels.filter((l) => l.x > 420).sort((a, b) => a.y - b.y);
     const layoutSide = (arr, side) => {
       const n = arr.length;
-      const top = 90, bottom = 660, gap = n > 1 ? (bottom - top) / (n - 1) : 0;
+      const top = 100, bottom = 650, gap = n > 1 ? (bottom - top) / (n - 1) : 0;
       arr.forEach((l, i) => {
         l.ly = n > 1 ? top + gap * i : (top + bottom) / 2;
-        l.lx = side === "L" ? VB_L + 60 : VB_R - 60;
+        l.lx = side === "L" ? VB_L + 40 : VB_R - 40;
         l.anchor = side === "L" ? "start" : "end";
         l.side = side;
       });
@@ -853,25 +854,33 @@ function App() {
         <div style={{ fontSize: 12, color: C.goldDim, fontWeight: 700, marginBottom: 4 }}>
           샹파뉴 지역 · 프랑스 마른 주
         </div>
-        <svg viewBox={`${VB_L} 0 ${VB_W} 750`} style={{ width: "100%", display: "block" }}>
+        <svg viewBox={`${VB_L} 0 ${VB_W} 760`} style={{ width: "100%", display: "block" }}>
           <path d={CHAMPAGNE_MAP.path} fill="#E4EAD9" stroke="#B9A96E" strokeWidth="3" />
           {/* 지시선(라벨 → 점) */}
           {allLabels.map((l) => {
-            const lineX = l.side === "L" ? l.lx + 8 : l.lx - 8;
+            const lineX = l.side === "L" ? l.lx + 6 : l.lx - 6;
             return <line key={"ln" + l.name} x1={lineX} y1={l.ly} x2={l.x} y2={l.y}
-              stroke="#B0A48A" strokeWidth="1.5" />;
+              stroke="#A89A7C" strokeWidth={l.star ? 2.5 : 1.8} />;
           })}
-          {/* 점 */}
+          {/* 점 / 별 */}
           {allLabels.map((l) => (
             l.star
-              ? <text key={"st" + l.name} x={l.x} y={l.y + 12} fontSize="48" fill="#7C2A3A" textAnchor="middle">★</text>
-              : <circle key={"c" + l.name} cx={l.x} cy={l.y} r="9" fill="#8C7637" />
+              ? <text key={"st" + l.name} x={l.x} y={l.y + 26} fontSize="80" fill="#7C2A3A" textAnchor="middle">★</text>
+              : <circle key={"c" + l.name} cx={l.x} cy={l.y} r="12" fill="#8C7637" />
           ))}
-          {/* 라벨(크게) */}
+          {/* 라벨(크게). 별 라벨은 두 줄: 마을명 크게 + 설명 작게 */}
           {allLabels.map((l) => (
-            <text key={"tx" + l.name} x={l.lx} y={l.ly + 10} fontSize={l.star ? 34 : 30}
-              fontWeight={l.star ? 700 : 500} fill={l.star ? "#7C2A3A" : "#241F18"}
-              textAnchor={l.anchor}>{l.ko}</text>
+            l.star ? (
+              <g key={"tx" + l.name}>
+                <text x={l.lx} y={l.ly} fontSize="108" fontWeight="700" fill="#7C2A3A"
+                  textAnchor={l.anchor}>{l.ko}</text>
+                <text x={l.lx} y={l.ly + 52} fontSize="52" fill="#8C7637"
+                  textAnchor={l.anchor}>이 술의 산지</text>
+              </g>
+            ) : (
+              <text key={"tx" + l.name} x={l.lx} y={l.ly + 22} fontSize="72"
+                fontWeight="500" fill="#241F18" textAnchor={l.anchor}>{l.ko}</text>
+            )
           ))}
         </svg>
         <div style={{ fontSize: 11, color: C.sub, marginTop: 4, lineHeight: 1.5 }}>
