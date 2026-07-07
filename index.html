@@ -2764,10 +2764,11 @@ function App() {
                       {result.infoUncertain && (
                         <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>※ 일부 추정 정보예요</div>
                       )}
-                      <RegionMap info={result.info} name={result.name} />
                     </div>
                   );
                 })()}
+                {/* 지도는 info 유무와 무관하게 이름·지역으로 판정(판정 실패 시 스스로 안 나옴) */}
+                <RegionMap info={result.info} name={result.name} />
                 <div style={{ marginTop: 8, fontSize: 13, color: C.text, lineHeight: 1.6 }}>
                   {result.reason}
                 </div>
@@ -3055,10 +3056,11 @@ function App() {
                           {e.infoUncertain && (
                             <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>※ 일부 추정 정보예요</div>
                           )}
-                          <RegionMap info={e.info} name={e.name} />
                         </div>
                       );
                     })()}
+                    {/* 지도는 info 유무와 무관하게 이름·지역으로 판정(판정 실패 시 스스로 안 나옴) */}
+                    <RegionMap info={e.info} name={e.name} />
                     {e.reason && (
                       <div style={{ marginBottom: 8 }}>
                         <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>분석 근거</span>
