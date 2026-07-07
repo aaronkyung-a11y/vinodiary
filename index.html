@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.94";
+const APP_VERSION = "v0.95";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -810,39 +810,76 @@ function App() {
   function RegionMap({ info, name }) {
     if (!isChampagneRegion(info, name)) return null;
     const hit = matchVillage(info, name); // {name,x,y} 또는 null
-    // 배경에 늘 표시할 참조 마을(대표 몇 곳)
-    const refNames = ["Reims", "Épernay", "Ambonnay", "Avize", "Aÿ"];
-    const refs = CHAMPAGNE_MAP.villages.filter((v) => refNames.includes(v.name));
     const koOf = { "Reims": "랭스", "Épernay": "에페르네", "Ambonnay": "앙보네", "Avize": "아비즈", "Aÿ": "아이" };
+    // 하우스 블렌드(여러 마을·지역 블렌드) 감지 — 별을 못 찍는 게 정상인 경우 안내용
+    const blendHay = (
+      (info && info.region ? info.region : "") + " " + (name || "")
+    ).toLowerCase();
+    const looksBlend = /collection|brut premier|multi.?vintage|여러|블렌드|blend|리비에르|montagne de reims\s*,|nv|non.?vintage/.test(blendHay)
+      || (info && info.grapes && (info.grapes.match(/,/g) || []).length >= 2); // 3품종 이상 블렌드 힌트
+
+    // 참조 마을: hit이 이 목록에 있으면 중복 라벨 방지 위해 제외
+    const refNames = ["Reims", "Épernay", "Ambonnay", "Avize", "Aÿ"];
+    let refs = CHAMPAGNE_MAP.villages
+      .filter((v) => refNames.includes(v.name))
+      .map((v) => ({ name: v.name, x: v.x, y: v.y, ko: koOf[v.name] || v.name, star: false }));
+    // 별(산지)이 참조와 겹치면 참조에서 빼고 별로만 표시
+    if (hit) refs = refs.filter((v) => v.name !== hit.name);
+
+    // 라벨을 좌/우 여백에 세로로 배분하고 점까지 지시선. viewBox를 좌우로 넓혀 여백 확보.
+    const VB_L = -420, VB_R = 1420, VB_W = VB_R - VB_L; // 넓힌 viewBox 가로
+    const labels = refs.map((v) => ({ ...v }));
+    if (hit) labels.push({ name: hit.name, x: hit.x, y: hit.y, ko: hit.name + " · 이 술의 산지", star: true });
+    // 좌/우 분배: 점 x가 420보다 크면 오른쪽, 아니면 왼쪽
+    const left = labels.filter((l) => l.x <= 420).sort((a, b) => a.y - b.y);
+    const right = labels.filter((l) => l.x > 420).sort((a, b) => a.y - b.y);
+    const layoutSide = (arr, side) => {
+      const n = arr.length;
+      const top = 90, bottom = 660, gap = n > 1 ? (bottom - top) / (n - 1) : 0;
+      arr.forEach((l, i) => {
+        l.ly = n > 1 ? top + gap * i : (top + bottom) / 2;
+        l.lx = side === "L" ? VB_L + 60 : VB_R - 60;
+        l.anchor = side === "L" ? "start" : "end";
+        l.side = side;
+      });
+    };
+    layoutSide(left, "L");
+    layoutSide(right, "R");
+    const allLabels = left.concat(right);
+
     return (
       <div style={{ marginTop: 10, background: "#EEF4F0", borderRadius: 10,
         border: `1px solid ${C.line}`, padding: 8 }}>
-        <div style={{ fontSize: 11, color: C.goldDim, fontWeight: 700, marginBottom: 4 }}>
+        <div style={{ fontSize: 12, color: C.goldDim, fontWeight: 700, marginBottom: 4 }}>
           샹파뉴 지역 · 프랑스 마른 주
         </div>
-        <svg viewBox="0 0 1000 750" style={{ width: "100%", display: "block" }}>
+        <svg viewBox={`${VB_L} 0 ${VB_W} 750`} style={{ width: "100%", display: "block" }}>
           <path d={CHAMPAGNE_MAP.path} fill="#E4EAD9" stroke="#B9A96E" strokeWidth="3" />
-          {/* 참조 마을(작게) */}
-          {refs.map((v) => (
-            <g key={v.name}>
-              <circle cx={v.x} cy={v.y} r="7" fill="#8C7637" />
-              <text x={v.x + 12} y={v.y + 5} fontSize="20" fill="#241F18">{koOf[v.name] || v.name}</text>
-            </g>
+          {/* 지시선(라벨 → 점) */}
+          {allLabels.map((l) => {
+            const lineX = l.side === "L" ? l.lx + 8 : l.lx - 8;
+            return <line key={"ln" + l.name} x1={lineX} y1={l.ly} x2={l.x} y2={l.y}
+              stroke="#B0A48A" strokeWidth="1.5" />;
+          })}
+          {/* 점 */}
+          {allLabels.map((l) => (
+            l.star
+              ? <text key={"st" + l.name} x={l.x} y={l.y + 12} fontSize="48" fill="#7C2A3A" textAnchor="middle">★</text>
+              : <circle key={"c" + l.name} cx={l.x} cy={l.y} r="9" fill="#8C7637" />
           ))}
-          {/* 이 술의 산지 마을 별(검증 좌표에 있을 때만) */}
-          {hit && (
-            <g>
-              <text x={hit.x} y={hit.y + 9} fontSize="34" fill="#7C2A3A" textAnchor="middle">★</text>
-              <text x={hit.x + 20} y={hit.y - 8} fontSize="22" fontWeight="700" fill="#7C2A3A">
-                {hit.name} · 이 술의 산지
-              </text>
-            </g>
-          )}
+          {/* 라벨(크게) */}
+          {allLabels.map((l) => (
+            <text key={"tx" + l.name} x={l.lx} y={l.ly + 10} fontSize={l.star ? 34 : 30}
+              fontWeight={l.star ? 700 : 500} fill={l.star ? "#7C2A3A" : "#241F18"}
+              textAnchor={l.anchor}>{l.ko}</text>
+          ))}
         </svg>
-        <div style={{ fontSize: 10, color: C.sub, marginTop: 4 }}>
+        <div style={{ fontSize: 11, color: C.sub, marginTop: 4, lineHeight: 1.5 }}>
           {hit
-            ? "★ 산지 마을은 실제 좌표. 경계는 마른 주 개략도."
-            : "산지 마을을 특정하지 못해 지역만 표시(별 없음). 경계는 마른 주 개략도."}
+            ? "★ 산지 마을은 실제 좌표예요. 경계는 마른 주 개략도(포도밭 구획 아님)."
+            : (looksBlend
+                ? "여러 마을·지역을 섞은 블렌드라 특정 산지 마을이 없어요. 지역 전체를 표시했어요(경계는 마른 주 개략도)."
+                : "산지 마을을 특정하지 못해 지역만 표시했어요(경계는 마른 주 개략도).")}
         </div>
       </div>
     );
