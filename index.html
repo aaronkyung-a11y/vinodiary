@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v0.96";
+const APP_VERSION = "v0.97";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -124,31 +124,32 @@ function saveProfiles(arr) {
 // === 샴페인 지역 SVG 지도 데이터(앱 내장) ===
 // 경계: Natural Earth(퍼블릭 도메인) 마른 주, viewBox 1000x750로 사전 변환.
 // 마을 좌표: OpenStreetMap에서 수집한 실제 좌표(추정 아님). 아래 목록에 있는 마을만 별 표시.
-const CHAMPAGNE_MAP = {
-  path: "M936.4,583.0 L866.2,582.7 L829.8,594.0 L813.7,620.2 L849.6,619.7 L859.1,643.9 L815.0,657.3 L811.1,672.2 L820.3,700.5 L755.8,705.4 L716.0,691.7 L674.9,707.7 L563.8,645.1 L559.6,635.6 L565.8,596.3 L557.6,575.5 L489.6,569.4 L444.7,583.0 L423.7,581.8 L411.8,602.5 L385.0,609.6 L306.2,676.1 L294.5,710.0 L238.2,699.0 L220.2,677.4 L211.9,687.2 L175.1,698.2 L168.5,669.5 L155.2,670.2 L135.8,642.4 L120.2,643.4 L99.7,620.4 L76.1,621.4 L73.7,606.3 L78.4,588.5 L71.6,559.1 L54.4,539.3 L41.3,538.8 L40.0,531.9 L57.2,508.8 L46.4,495.0 L48.1,491.6 L78.7,488.5 L100.7,437.5 L140.6,400.2 L149.8,380.8 L194.8,337.8 L195.1,331.1 L187.1,324.5 L157.5,325.4 L146.6,318.2 L147.5,303.7 L169.8,280.9 L169.4,244.4 L182.7,235.1 L224.5,236.1 L237.4,220.6 L214.2,196.2 L197.4,189.9 L192.0,142.1 L183.2,119.4 L213.1,102.9 L299.6,85.6 L300.5,67.4 L311.1,60.0 L331.6,61.0 L359.2,74.4 L377.4,67.8 L402.5,74.5 L409.9,59.2 L410.6,40.0 L489.9,49.6 L567.2,107.2 L590.0,107.3 L611.8,135.2 L631.5,139.7 L703.6,133.4 L736.8,170.9 L785.4,157.7 L848.9,170.1 L888.9,156.4 L907.4,156.1 L928.9,170.4 L929.6,190.1 L917.4,211.7 L915.8,224.0 L932.3,271.4 L936.2,321.5 L955.8,333.6 L960.0,345.0 L952.2,356.2 L951.6,383.4 L945.6,399.2 L910.1,413.7 L900.9,427.3 L896.6,450.4 L901.6,477.1 L888.6,498.0 L891.8,508.7 L931.2,539.6 L937.3,560.8 L936.4,583.0 Z",
-  villages: [{"name": "Ambonnay", "x": 476.4, "y": 290.8, "al": ["ambonnay", "앙보네"]}, {"name": "Bouzy", "x": 462.5, "y": 287.6, "al": ["bouzy", "부지"]}, {"name": "Verzenay", "x": 460.6, "y": 228.4, "al": ["verzenay", "베르즈네"]}, {"name": "Verzy", "x": 471.6, "y": 237.8, "al": ["verzy", "베르지"]}, {"name": "Mailly-Champagne", "x": 442.1, "y": 229.7, "al": ["mailly", "마이"]}, {"name": "Sillery", "x": 452.9, "y": 199.8, "al": ["sillery", "실르리"]}, {"name": "Beaumont-sur-Vesle", "x": 483.1, "y": 217.8, "al": ["beaumont-sur-vesle", "보몽"]}, {"name": "Puisieulx", "x": 443.5, "y": 202.7, "al": ["puisieulx"]}, {"name": "Louvois", "x": 449.4, "y": 263.2, "al": ["louvois", "루부아"]}, {"name": "Tauxières-Mutry", "x": 436.7, "y": 280.1, "al": ["tauxieres", "tauxières", "토시에르"]}, {"name": "Aÿ", "x": 378.0, "y": 302.3, "al": ["aÿ", "ay ", "아이", "aÿ-champagne", "ay-champagne"]}, {"name": "Mareuil-sur-Aÿ", "x": 401.5, "y": 315.4, "al": ["mareuil", "마뢰이"]}, {"name": "Bisseuil", "x": 429.1, "y": 313.4, "al": ["bisseuil"]}, {"name": "Cramant", "x": 375.2, "y": 358.9, "al": ["cramant", "크라망"]}, {"name": "Avize", "x": 385.3, "y": 370.7, "al": ["avize", "아비즈"]}, {"name": "Oger", "x": 384.6, "y": 384.2, "al": ["oger", "오제"]}, {"name": "Le Mesnil-sur-Oger", "x": 391.5, "y": 390.4, "al": ["mesnil", "므닐", "le mesnil"]}, {"name": "Chouilly", "x": 384.9, "y": 329.7, "al": ["chouilly", "슈이"]}, {"name": "Oiry", "x": 406.1, "y": 331.8, "al": ["oiry"]}, {"name": "Épernay", "x": 353.2, "y": 317.2, "al": ["epernay", "épernay", "에페르네"]}, {"name": "Cumières", "x": 338.3, "y": 294.8, "al": ["cumieres", "cumières", "퀴미에르"]}, {"name": "Hautvillers", "x": 347.8, "y": 286.5, "al": ["hautvillers", "오빌레"]}, {"name": "Dizy", "x": 360.6, "y": 300.5, "al": ["dizy", "디지"]}, {"name": "Reims", "x": 397.5, "y": 153.6, "al": ["reims", "랭스"]}, {"name": "Trigny", "x": 320.7, "y": 119.5, "al": ["trigny", "트리니"]}, {"name": "Châlons-en-Champagne", "x": 583.3, "y": 382.6, "al": ["chalons", "châlons", "샬롱"]}]
-};
-// 샴페인 지역인지 판정
-function isChampagneRegion(info, name) {
+const WINE_REGIONS = {"champagne":{"title":"샹파뉴 · 마른","path":"M936.4,583.0 L866.2,582.7 L829.8,594.0 L813.7,620.2 L849.6,619.7 L859.1,643.9 L815.0,657.3 L811.1,672.2 L820.3,700.5 L755.8,705.4 L716.0,691.7 L674.9,707.7 L563.8,645.1 L559.6,635.6 L565.8,596.3 L557.6,575.5 L489.6,569.4 L444.7,583.0 L423.7,581.8 L411.8,602.5 L385.0,609.6 L306.2,676.1 L294.5,710.0 L238.2,699.0 L220.2,677.4 L211.9,687.2 L175.1,698.2 L168.5,669.5 L155.2,670.2 L135.8,642.4 L120.2,643.4 L99.7,620.4 L76.1,621.4 L73.7,606.3 L78.4,588.5 L71.6,559.1 L54.4,539.3 L41.3,538.8 L40.0,531.9 L57.2,508.8 L46.4,495.0 L48.1,491.6 L78.7,488.5 L100.7,437.5 L140.6,400.2 L149.8,380.8 L194.8,337.8 L195.1,331.1 L187.1,324.5 L157.5,325.4 L146.6,318.2 L147.5,303.7 L169.8,280.9 L169.4,244.4 L182.7,235.1 L224.5,236.1 L237.4,220.6 L214.2,196.2 L197.4,189.9 L192.0,142.1 L183.2,119.4 L213.1,102.9 L299.6,85.6 L300.5,67.4 L311.1,60.0 L331.6,61.0 L359.2,74.4 L377.4,67.8 L402.5,74.5 L409.9,59.2 L410.6,40.0 L489.9,49.6 L567.2,107.2 L590.0,107.3 L611.8,135.2 L631.5,139.7 L703.6,133.4 L736.8,170.9 L785.4,157.7 L848.9,170.1 L888.9,156.4 L907.4,156.1 L928.9,170.4 L929.6,190.1 L917.4,211.7 L915.8,224.0 L932.3,271.4 L936.2,321.5 L955.8,333.6 L960.0,345.0 L952.2,356.2 L951.6,383.4 L945.6,399.2 L910.1,413.7 L900.9,427.3 L896.6,450.4 L901.6,477.1 L888.6,498.0 L891.8,508.7 L931.2,539.6 L937.3,560.8 L936.4,583.0 Z","match":"champagne|champagn|샹파뉴|샴페인|reims|epernay|épernay|ambonnay|bouzy|verzenay|avize|cramant|montagne de reims|cote des blancs|côte des blancs|vallee de la marne|marne","villages":[{"name":"Ambonnay","ko":"앙보네","x":476.4,"y":290.8,"al":["ambonnay","앙보네"]},{"name":"Bouzy","ko":"부지","x":462.5,"y":287.6,"al":["bouzy","부지"]},{"name":"Verzenay","ko":"베르즈네","x":460.6,"y":228.4,"al":["verzenay","베르즈네"]},{"name":"Verzy","ko":"베르지","x":471.6,"y":237.8,"al":["verzy","베르지"]},{"name":"Mailly-Champagne","ko":"마이","x":442.1,"y":229.7,"al":["mailly","마이"]},{"name":"Sillery","ko":"실르리","x":452.9,"y":199.8,"al":["sillery","실르리"]},{"name":"Beaumont-sur-Vesle","ko":"보몽","x":483.1,"y":217.8,"al":["beaumont-sur-vesle","보몽"]},{"name":"Puisieulx","ko":"Puisieulx","x":443.5,"y":202.7,"al":["puisieulx"]},{"name":"Louvois","ko":"루부아","x":449.4,"y":263.2,"al":["louvois","루부아"]},{"name":"Tauxières-Mutry","ko":"토시에르","x":436.7,"y":280.1,"al":["tauxieres","tauxières","토시에르"]},{"name":"Aÿ","ko":"아이","x":378,"y":302.3,"al":["aÿ","ay ","아이","aÿ-champagne","ay-champagne"]},{"name":"Mareuil-sur-Aÿ","ko":"마뢰이","x":401.5,"y":315.4,"al":["mareuil","마뢰이"]},{"name":"Bisseuil","ko":"Bisseuil","x":429.1,"y":313.4,"al":["bisseuil"]},{"name":"Cramant","ko":"크라망","x":375.2,"y":358.9,"al":["cramant","크라망"]},{"name":"Avize","ko":"아비즈","x":385.3,"y":370.7,"al":["avize","아비즈"]},{"name":"Oger","ko":"오제","x":384.6,"y":384.2,"al":["oger","오제"]},{"name":"Le Mesnil-sur-Oger","ko":"므닐","x":391.5,"y":390.4,"al":["mesnil","므닐","le mesnil"]},{"name":"Chouilly","ko":"슈이","x":384.9,"y":329.7,"al":["chouilly","슈이"]},{"name":"Oiry","ko":"Oiry","x":406.1,"y":331.8,"al":["oiry"]},{"name":"Épernay","ko":"에페르네","x":353.2,"y":317.2,"al":["epernay","épernay","에페르네"]},{"name":"Cumières","ko":"퀴미에르","x":338.3,"y":294.8,"al":["cumieres","cumières","퀴미에르"]},{"name":"Hautvillers","ko":"오빌레","x":347.8,"y":286.5,"al":["hautvillers","오빌레"]},{"name":"Dizy","ko":"디지","x":360.6,"y":300.5,"al":["dizy","디지"]},{"name":"Reims","ko":"랭스","x":397.5,"y":153.6,"al":["reims","랭스"]},{"name":"Trigny","ko":"트리니","x":320.7,"y":119.5,"al":["trigny","트리니"]},{"name":"Châlons-en-Champagne","ko":"샬롱","x":583.3,"y":382.6,"al":["chalons","châlons","샬롱"]}]},"bordeaux":{"title":"보르도 · 지롱드","path":"M55.2,572.3 L51.8,530.8 L69.0,514.8 L80.8,487.4 L92.0,479.0 L141.1,483.8 L172.6,477.2 L172.8,470.0 L158.7,461.2 L166.5,461.2 L160.9,454.5 L100.1,425.7 L65.2,459.5 L50.0,497.0 L84.6,263.8 L108.3,189.0 L118.5,89.3 L141.4,59.3 L158.7,50.0 L166.1,53.9 L162.6,69.3 L175.4,81.2 L246.3,108.1 L331.0,166.8 L359.6,257.4 L378.8,284.8 L443.2,321.9 L450.3,359.5 L462.7,370.6 L454.9,344.8 L460.3,332.1 L453.8,321.8 L427.7,309.3 L460.0,311.7 L486.0,321.9 L471.6,307.0 L424.3,295.7 L404.1,286.4 L393.7,274.1 L364.9,168.7 L410.3,169.9 L434.8,157.2 L450.2,179.5 L490.9,184.4 L522.7,198.9 L527.2,225.6 L542.5,242.3 L573.9,242.2 L638.0,267.6 L667.9,273.1 L716.3,264.7 L784.7,264.2 L794.4,269.5 L804.2,290.9 L788.6,312.2 L789.2,322.7 L770.9,339.7 L784.2,363.1 L759.6,386.5 L784.5,396.4 L866.0,402.9 L903.2,383.5 L899.3,377.0 L950.0,388.7 L935.4,399.5 L916.8,403.0 L935.9,433.3 L898.9,435.1 L888.4,455.8 L857.0,443.8 L834.3,451.4 L831.2,470.5 L861.0,479.8 L863.6,492.3 L813.3,530.3 L785.7,534.0 L758.9,558.3 L758.2,569.6 L773.2,581.4 L766.1,599.6 L775.2,620.3 L718.2,630.2 L747.0,663.2 L686.8,686.5 L651.2,668.6 L641.8,671.6 L639.6,693.4 L630.9,700.0 L550.7,694.9 L541.4,681.3 L544.7,657.1 L517.7,642.9 L472.4,633.3 L464.6,620.5 L419.9,604.5 L400.5,581.5 L288.4,593.6 L242.5,585.6 L204.1,589.6 L193.7,587.3 L204.1,565.2 L197.9,555.2 L152.9,543.2 L115.6,560.3 L55.2,572.3 Z","match":"bordeaux|보르도|margaux|마고|pauillac|포이약|saint-julien|생쥘리앙|saint-estephe|saint-estèphe|생테스테프|saint-emilion|saint-émilion|생테밀리옹|pomerol|포므롤|pessac|leognan|léognan|페삭|sauternes|소테른|medoc|médoc|메독|graves|그라브|listrac|moulis","villages":[{"name":"Margaux","ko":"마고","x":384.1,"y":299.1,"al":["margaux","마고"]},{"name":"Pauillac","ko":"포이약","x":341.1,"y":226.6,"al":["pauillac","포이약"]},{"name":"Saint-Julien","ko":"생쥘리앙","x":345.1,"y":243,"al":["saint-julien","st-julien","st. julien","생쥘리앙","생줄리앙"]},{"name":"Saint-Estèphe","ko":"생테스테프","x":328.5,"y":196,"al":["saint-estephe","saint-estèphe","st-estephe","생테스테프"]},{"name":"Saint-Émilion","ko":"생테밀리옹","x":678,"y":371.5,"al":["saint-emilion","saint-émilion","st-emilion","생테밀리옹","생테밀리온"]},{"name":"Pomerol","ko":"포므롤","x":653,"y":353.5,"al":["pomerol","포므롤"]},{"name":"Pessac-Léognan","ko":"페삭레오냥","x":425.7,"y":448.8,"al":["pessac","leognan","léognan","페삭","레오냥"]},{"name":"Sauternes","ko":"소테른","x":572.6,"y":541.8,"al":["sauternes","소테른"]},{"name":"Bordeaux","ko":"보르도","x":436.9,"y":396,"al":["bordeaux","보르도"]},{"name":"Listrac-Médoc","ko":"리스트락","x":317.2,"y":286.1,"al":["listrac","리스트락"]},{"name":"Moulis","ko":"물리스","x":326.8,"y":294.2,"al":["moulis","물리스"]},{"name":"Graves","ko":"그라브","x":564.4,"y":486,"al":["graves","그라브"]}]},"piemonte":{"title":"피에몬테","path":"M374.0,700.0 L356.5,669.2 L361.7,650.2 L349.9,647.9 L334.3,659.2 L241.9,680.8 L230.0,666.9 L130.0,612.7 L105.9,611.9 L63.0,541.2 L65.8,511.1 L81.2,498.4 L59.7,475.8 L51.2,459.5 L50.0,441.3 L91.8,388.0 L87.5,375.6 L97.2,354.3 L105.9,349.0 L133.4,353.3 L127.2,337.4 L141.5,336.0 L171.2,315.5 L236.3,294.6 L243.3,297.3 L248.5,312.5 L293.9,309.1 L348.1,265.0 L356.7,267.8 L361.4,278.4 L398.9,277.3 L416.5,260.8 L457.8,270.0 L471.1,259.1 L451.1,227.8 L449.9,215.4 L455.4,189.3 L465.8,177.2 L470.8,147.5 L469.4,140.5 L454.5,134.0 L452.1,116.7 L503.6,91.9 L521.2,112.5 L529.3,96.0 L541.7,97.6 L550.4,71.0 L558.0,76.3 L568.3,66.6 L576.5,73.1 L594.8,65.3 L619.8,69.5 L633.4,54.2 L646.5,50.0 L681.6,53.8 L683.5,64.0 L704.2,73.2 L723.6,106.3 L738.0,145.3 L747.0,154.9 L786.9,153.2 L815.9,135.3 L827.5,138.7 L828.1,169.1 L859.0,183.2 L864.2,208.3 L893.0,239.1 L892.8,260.7 L905.3,274.3 L930.8,280.0 L949.6,325.7 L950.0,394.8 L945.7,407.1 L931.5,413.8 L918.7,410.2 L910.6,394.3 L888.4,384.0 L857.3,354.6 L843.5,354.5 L825.3,382.8 L837.3,395.9 L836.3,423.1 L806.5,426.8 L802.2,441.1 L786.6,460.4 L768.1,415.3 L732.9,409.4 L724.3,411.4 L720.5,436.3 L707.1,451.7 L648.0,451.9 L629.3,472.3 L582.4,442.3 L567.0,476.0 L572.8,492.9 L570.9,506.4 L555.0,519.9 L545.4,546.9 L518.9,573.4 L522.9,641.9 L511.1,660.3 L495.1,657.0 L487.5,664.0 L485.7,670.2 L492.8,677.1 L492.7,685.2 L429.6,679.8 L400.4,669.1 L390.3,682.0 L393.0,695.0 L374.0,700.0 Z","match":"piemonte|piedmont|피에몬테|barolo|바롤로|barbaresco|바르바레스코|langhe|랑게|alba|알바|asti|아스티|nebbiolo|네비올로|la morra|serralunga","villages":[{"name":"Barolo","ko":"바롤로","x":469.6,"y":394.2,"al":["barolo","바롤로"]},{"name":"Barbaresco","ko":"바르바레스코","x":521.8,"y":333.2,"al":["barbaresco","바르바레스코"]},{"name":"Alba","ko":"알바","x":504.4,"y":352.3,"al":["alba d","alba,","d'alba","알바"]},{"name":"Asti","ko":"아스티","x":569.7,"y":270.9,"al":["asti","아스티"]},{"name":"La Morra","ko":"라모라","x":468.3,"y":372.5,"al":["la morra","라모라","라 모라"]},{"name":"Serralunga d'Alba","ko":"세랄룽가","x":491.6,"y":392.3,"al":["serralunga","세랄룽가"]}]},"toscana":{"title":"토스카나","path":"M639.2,688.1 L549.0,680.6 L536.7,684.5 L525.8,700.0 L510.9,700.0 L484.5,691.3 L473.9,681.9 L480.5,673.4 L515.3,674.4 L528.2,660.3 L527.4,646.2 L512.2,631.2 L496.3,633.3 L479.6,616.3 L470.8,614.3 L469.1,607.5 L430.6,595.1 L422.2,580.3 L397.4,569.0 L284.0,547.6 L301.9,536.9 L302.3,522.3 L308.7,516.2 L301.2,508.0 L231.2,494.0 L181.3,497.3 L185.3,502.3 L170.3,505.6 L160.1,500.3 L148.4,483.0 L169.5,471.2 L181.3,451.9 L185.3,428.4 L175.4,393.7 L126.7,344.4 L85.1,317.7 L67.6,313.7 L50.0,278.1 L143.0,258.2 L155.3,259.6 L158.9,268.0 L144.9,288.3 L158.2,318.7 L161.5,348.7 L176.5,351.3 L182.5,368.8 L205.9,378.5 L255.7,371.9 L268.2,374.2 L250.6,391.4 L257.5,410.9 L237.9,412.6 L234.5,421.8 L273.1,435.7 L276.5,441.8 L288.8,428.0 L308.4,430.4 L321.1,424.0 L343.0,426.5 L380.3,423.0 L392.3,409.1 L393.0,395.9 L417.4,397.9 L424.7,391.5 L424.6,385.8 L402.7,369.1 L406.4,363.7 L426.5,358.8 L430.1,346.3 L402.0,322.3 L366.3,319.6 L353.0,315.4 L344.1,306.0 L340.1,276.4 L331.2,266.2 L368.4,261.1 L379.8,253.0 L368.3,233.1 L355.9,225.5 L317.2,229.5 L273.2,206.0 L282.1,196.4 L307.2,200.8 L327.8,195.1 L350.2,202.7 L377.2,201.5 L399.6,194.0 L415.7,206.4 L458.0,215.5 L460.8,195.4 L506.0,179.9 L499.9,168.2 L512.3,156.6 L528.9,123.3 L528.8,107.5 L538.3,100.1 L534.5,95.3 L564.5,91.4 L537.8,84.4 L533.2,78.2 L583.1,72.3 L606.1,59.9 L628.3,58.1 L642.6,50.0 L658.3,52.7 L692.5,73.8 L722.0,75.1 L733.1,71.3 L750.3,75.2 L753.9,78.7 L742.9,84.6 L744.8,87.9 L771.9,90.9 L797.4,86.3 L826.9,87.7 L799.0,118.4 L776.1,125.6 L775.2,134.9 L793.9,144.9 L793.8,153.1 L804.9,158.1 L810.3,173.8 L774.8,179.4 L736.9,216.5 L734.7,225.5 L752.4,239.2 L728.4,247.3 L719.4,257.0 L694.1,260.0 L698.7,275.3 L653.4,281.3 L639.9,288.9 L669.5,300.1 L681.3,311.5 L714.3,322.4 L715.7,344.8 L779.7,368.0 L796.5,384.5 L829.4,397.5 L869.6,402.6 L899.8,423.8 L912.1,419.3 L936.6,419.1 L918.2,438.5 L926.2,457.4 L942.4,454.1 L950.0,463.4 L925.6,504.9 L935.5,513.5 L931.7,521.3 L859.3,544.5 L838.6,542.0 L828.5,546.9 L858.8,569.1 L849.1,580.1 L848.0,600.9 L830.4,603.6 L820.4,613.1 L786.2,626.7 L759.1,632.6 L741.8,630.5 L740.4,641.0 L729.9,647.9 L752.3,657.9 L747.3,672.6 L687.8,677.7 L668.8,697.2 L639.2,688.1 Z","match":"toscana|tuscany|토스카나|chianti|키안티|montalcino|몬탈치노|brunello|브루넬로|montepulciano|몬테풀차노|bolgheri|볼게리|sassicaia|사시카이아|ornellaia|super tuscan|슈퍼 투스칸|san gimignano|firenze|siena","villages":[{"name":"Montalcino","ko":"몬탈치노","x":689.5,"y":459.5,"al":["montalcino","brunello","몬탈치노","브루넬로"]},{"name":"Montepulciano","ko":"몬테풀차노","x":845.8,"y":446.7,"al":["montepulciano","몬테풀차노"]},{"name":"Chianti","ko":"키안티","x":604.9,"y":268.5,"al":["chianti","키안티"]},{"name":"Bolgheri","ko":"볼게리","x":223.4,"y":398.2,"al":["bolgheri","볼게리","sassicaia","사시카이아","ornellaia","오르넬라이아"]},{"name":"San Gimignano","ko":"산지미냐노","x":450.6,"y":316.8,"al":["san gimignano","산지미냐노","vernaccia"]},{"name":"Firenze","ko":"피렌체","x":564.1,"y":211.8,"al":["firenze","florence","피렌체"]},{"name":"Siena","ko":"시에나","x":677.4,"y":421.4,"al":["siena","시에나"]}]}};
+
+// 산지/이름으로 해당 와인 지역을 판정. 없으면 null.
+function detectRegion(info, name) {
   const hay = (
     (info && info.region ? info.region : "") + " " +
     (info && info.caskRegion ? info.caskRegion : "") + " " +
     (name || "")
   ).toLowerCase();
-  return /champagne|champagn|샹파뉴|샴페인|reims|epernay|épernay|ambonnay|bouzy|verzenay|avize|cramant|montagne de reims|cote des blancs|côte des blancs|vallee de la marne|marne/.test(hay);
+  for (const key in WINE_REGIONS) {
+    const re = new RegExp(WINE_REGIONS[key].match, "i");
+    if (re.test(hay)) return key;
+  }
+  return null;
 }
-// 산지 문자열에서 '검증된 좌표가 있는' 마을을 찾음. 없으면 null(추정 금지).
-function matchVillage(info, name) {
+// 해당 지역 내에서 '검증된 좌표가 있는' 마을을 찾음. 없으면 null(추정 금지).
+function matchVillageIn(regionKey, info, name) {
+  if (!regionKey || !WINE_REGIONS[regionKey]) return null;
   const hay = (
-    (info && info.region ? info.region : "") + " " +
-    (name || "")
+    (info && info.region ? info.region : "") + " " + (name || "")
   ).toLowerCase();
   let best = null;
-  for (const v of CHAMPAGNE_MAP.villages) {
+  for (const v of WINE_REGIONS[regionKey].villages) {
     for (const a of v.al) {
       if (a && hay.indexOf(a) >= 0) {
-        // 더 긴(구체적인) 별칭 우선
-        if (!best || a.length > best._len) best = { name: v.name, x: v.x, y: v.y, _len: a.length };
+        if (!best || a.length > best._len) best = { name: v.name, ko: v.ko, x: v.x, y: v.y, _len: a.length };
       }
     }
   }
@@ -808,32 +809,26 @@ function App() {
   // Drive 이미지 표시 실패 시 다른 형식으로 폴백 후 그래도 실패하면 숨김
   // 산지 지도(앱이 SVG로 그림). 샴페인일 때만. 그 술 산지 마을이 검증 좌표에 있으면 별 표시.
   function RegionMap({ info, name }) {
-    if (!isChampagneRegion(info, name)) return null;
-    const hit = matchVillage(info, name); // {name,x,y} 또는 null
-    const koOf = { "Reims": "랭스", "Épernay": "에페르네", "Ambonnay": "앙보네", "Avize": "아비즈", "Aÿ": "아이" };
-    // 하우스 블렌드(여러 마을·지역 블렌드) 감지 — 별을 못 찍는 게 정상인 경우 안내용
-    const blendHay = (
-      (info && info.region ? info.region : "") + " " + (name || "")
-    ).toLowerCase();
-    const looksBlend = /collection|brut premier|multi.?vintage|여러|블렌드|blend|리비에르|montagne de reims\s*,|nv|non.?vintage/.test(blendHay)
-      || (info && info.grapes && (info.grapes.match(/,/g) || []).length >= 2); // 3품종 이상 블렌드 힌트
+    const regionKey = detectRegion(info, name);
+    if (!regionKey) return null;
+    const R = WINE_REGIONS[regionKey];
+    const hit = matchVillageIn(regionKey, info, name); // {name,ko,x,y} 또는 null
 
-    // 참조 마을: hit이 이 목록에 있으면 중복 라벨 방지 위해 제외
-    const refNames = ["Reims", "Épernay", "Ambonnay", "Avize", "Aÿ"];
-    let refs = CHAMPAGNE_MAP.villages
-      .filter((v) => refNames.includes(v.name))
-      .map((v) => ({ name: v.name, x: v.x, y: v.y, ko: koOf[v.name] || v.name, star: false }));
-    // 별(산지)이 참조와 겹치면 참조에서 빼고 별로만 표시
+    // 하우스 블렌드(여러 마을·지역 블렌드) 감지 — 별을 못 찍는 게 정상인 경우 안내용
+    const blendHay = ((info && info.region ? info.region : "") + " " + (name || "")).toLowerCase();
+    const looksBlend = /collection|brut premier|multi.?vintage|여러|블렌드|blend|리비에르|nv\b|non.?vintage/.test(blendHay)
+      || (info && info.grapes && (info.grapes.match(/,/g) || []).length >= 2);
+
+    // 참조 마을: 그 지역 앞쪽 5개(hit과 겹치면 제외)
+    let refs = R.villages.slice(0, 5).map((v) => ({ name: v.name, x: v.x, y: v.y, ko: v.ko, star: false }));
     if (hit) refs = refs.filter((v) => v.name !== hit.name);
 
-    // 라벨을 좌/우 여백에 세로로 배분하고 점까지 지시선.
-    // viewBox 여백을 적게(글씨가 화면에서 커 보이도록). 폰트도 대폭 확대.
     const VB_L = -280, VB_R = 1280, VB_W = VB_R - VB_L;
     const labels = refs.map((v) => ({ ...v }));
-    if (hit) labels.push({ name: hit.name, x: hit.x, y: hit.y, ko: hit.name, star: true });
-    // 좌/우 분배: 점 x가 420보다 크면 오른쪽, 아니면 왼쪽
-    const left = labels.filter((l) => l.x <= 420).sort((a, b) => a.y - b.y);
-    const right = labels.filter((l) => l.x > 420).sort((a, b) => a.y - b.y);
+    if (hit) labels.push({ name: hit.name, x: hit.x, y: hit.y, ko: hit.ko || hit.name, star: true });
+    // 좌/우 분배: 점 x가 500 기준
+    const left = labels.filter((l) => l.x <= 500).sort((a, b) => a.y - b.y);
+    const right = labels.filter((l) => l.x > 500).sort((a, b) => a.y - b.y);
     const layoutSide = (arr, side) => {
       const n = arr.length;
       const top = 100, bottom = 650, gap = n > 1 ? (bottom - top) / (n - 1) : 0;
@@ -852,43 +847,40 @@ function App() {
       <div style={{ marginTop: 10, background: "#EEF4F0", borderRadius: 10,
         border: `1px solid ${C.line}`, padding: 8 }}>
         <div style={{ fontSize: 12, color: C.goldDim, fontWeight: 700, marginBottom: 4 }}>
-          샹파뉴 지역 · 프랑스 마른 주
+          {R.title} 지역
         </div>
         <svg viewBox={`${VB_L} 0 ${VB_W} 760`} style={{ width: "100%", display: "block" }}>
-          <path d={CHAMPAGNE_MAP.path} fill="#E4EAD9" stroke="#B9A96E" strokeWidth="3" />
-          {/* 지시선(라벨 → 점) */}
+          <path d={R.path} fill="#E4EAD9" stroke="#B9A96E" strokeWidth="3" />
           {allLabels.map((l) => {
             const lineX = l.side === "L" ? l.lx + 6 : l.lx - 6;
             return <line key={"ln" + l.name} x1={lineX} y1={l.ly} x2={l.x} y2={l.y}
               stroke="#A89A7C" strokeWidth={l.star ? 2.5 : 1.8} />;
           })}
-          {/* 점 / 별 */}
           {allLabels.map((l) => (
             l.star
               ? <text key={"st" + l.name} x={l.x} y={l.y + 26} fontSize="80" fill="#7C2A3A" textAnchor="middle">★</text>
               : <circle key={"c" + l.name} cx={l.x} cy={l.y} r="12" fill="#8C7637" />
           ))}
-          {/* 라벨(크게). 별 라벨은 두 줄: 마을명 크게 + 설명 작게 */}
           {allLabels.map((l) => (
             l.star ? (
               <g key={"tx" + l.name}>
-                <text x={l.lx} y={l.ly} fontSize="108" fontWeight="700" fill="#7C2A3A"
+                <text x={l.lx} y={l.ly} fontSize="102" fontWeight="700" fill="#7C2A3A"
                   textAnchor={l.anchor}>{l.ko}</text>
-                <text x={l.lx} y={l.ly + 52} fontSize="52" fill="#8C7637"
+                <text x={l.lx} y={l.ly + 52} fontSize="50" fill="#8C7637"
                   textAnchor={l.anchor}>이 술의 산지</text>
               </g>
             ) : (
-              <text key={"tx" + l.name} x={l.lx} y={l.ly + 22} fontSize="72"
+              <text key={"tx" + l.name} x={l.lx} y={l.ly + 22} fontSize="66"
                 fontWeight="500" fill="#241F18" textAnchor={l.anchor}>{l.ko}</text>
             )
           ))}
         </svg>
         <div style={{ fontSize: 11, color: C.sub, marginTop: 4, lineHeight: 1.5 }}>
           {hit
-            ? "★ 산지 마을은 실제 좌표예요. 경계는 마른 주 개략도(포도밭 구획 아님)."
+            ? "★ 산지 마을은 실제 좌표예요. 경계는 행정구역 개략도(포도밭 구획 아님)."
             : (looksBlend
-                ? "여러 마을·지역을 섞은 블렌드라 특정 산지 마을이 없어요. 지역 전체를 표시했어요(경계는 마른 주 개략도)."
-                : "산지 마을을 특정하지 못해 지역만 표시했어요(경계는 마른 주 개략도).")}
+                ? "여러 마을·지역을 섞은 블렌드라 특정 산지 마을이 없어요. 지역 전체를 표시했어요(경계는 개략도)."
+                : "산지 마을을 특정하지 못해 지역만 표시했어요(경계는 개략도).")}
         </div>
       </div>
     );
