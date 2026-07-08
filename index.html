@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.04";
+const APP_VERSION = "v1.07";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -522,6 +522,8 @@ function App() {
   const [quizScores, setQuizScores] = useState({}); // {playerKey: 점수}
   const [quizSelById, setQuizSelById] = useState({}); // 이 문항의 참여자별 선택 {playerKey: [..]}
   const quizRef = useRef(null);
+  const resultRef = useRef(null); // 단일 분석 결과 위치
+  const menuResultRef = useRef(null); // 메뉴판 결과 위치
   // 특정 참여자의 이 문항 선택 토글(아로마=다중, level=단일)
   function toggleQuizSel(player, q, val) {
     setQuizSelById((prev) => {
@@ -1397,6 +1399,9 @@ function App() {
       const r = await api({ action: "analyze", text: name + (kind ? " (" + kind + ")" : ""), forWhom: mainRater });
       if (r.error) throw new Error(r.error);
       setResult(r);
+      // 분석 완료: 결과 위치로 스크롤 + 완료 알림
+      showToast("분석 완료", "done");
+      setTimeout(() => { try { resultRef.current && resultRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {} }, 80);
       // 이미 셀러/위시에 있는 술인지 확인
       try { const m = findInCellar(r.name); setCellarMatch(m || null); } catch (e) { setCellarMatch(null); }
       if (isCommon) {
@@ -1461,6 +1466,9 @@ function App() {
         return;
       }
       setMenuResult(r);
+      // 메뉴판 분석 완료: 결과 위치로 스크롤 + 완료 알림
+      showToast(r.items.length + "종 분석 완료", "done");
+      setTimeout(() => { try { menuResultRef.current && menuResultRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {} }, 80);
     } catch (e) {
       setError("메뉴판 분석 실패: " + (e.message || "다시 시도해 주세요") + (imageData ? " (사진이 크면 일부만 보이게 잘라 다시 시도)" : ""));
       console.error(e);
@@ -2646,7 +2654,7 @@ function App() {
 
             {/* 메뉴판 결과 */}
             {analyzeMode === "menu" && menuResult && menuResult.items && (
-              <div style={{ marginTop: 18 }}>
+              <div ref={menuResultRef} style={{ marginTop: 18 }}>
                 {menuResult.note && (
                   <div style={{ fontSize: 12, color: C.sub, marginBottom: 12, lineHeight: 1.5,
                     fontStyle: "italic" }}>{menuResult.note}</div>
@@ -2719,7 +2727,7 @@ function App() {
             )}
 
             {result && analyzeMode === "single" && (
-              <div style={{ marginTop: 18, background: C.panel, border: `1px solid ${C.line}`,
+              <div ref={resultRef} style={{ marginTop: 18, background: C.panel, border: `1px solid ${C.line}`,
                 borderRadius: 16, padding: 18 }}>
                 {cellarMatch && (
                   <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: 12,
