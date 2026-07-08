@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.10";
+const APP_VERSION = "v1.13";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -522,6 +522,7 @@ function App() {
   const [examIdx, setExamIdx] = useState(0); // 현재 문항
   const [examSel, setExamSel] = useState({}); // {문항index: 선택한 보기index}
   const [examLoading, setExamLoading] = useState(false);
+  const [examFetchingMore, setExamFetchingMore] = useState(false); // 뒤 문항 백그라운드 로딩 중
   const [quizImageData, setQuizImageData] = useState(null); // 라벨 사진 base64
   const [quizImagePreview, setQuizImagePreview] = useState(null);
   const [quizData, setQuizData] = useState(null); // 백엔드 생성 결과
@@ -559,22 +560,48 @@ function App() {
   function quizPlayerLabel(k) { return (k === "me" || k === "나") ? myLabel : k; }
 
   // ===== WSET 모의고사 =====
+  const EXAM_TOTAL = 10;      // 총 문항
+  const EXAM_FIRST = 3;       // 먼저 받을 문항
   async function startExam() {
     setExamLoading(true);
     setExamStage("loading");
+    setExamFetchingMore(false);
     try {
-      const r = await api({ action: "examQuiz", subject: examSubject, level: examLevel, count: 10 });
+      // 1차: 앞 3문항만 빠르게
+      const r = await api({ action: "examQuiz", subject: examSubject, level: examLevel, count: EXAM_FIRST });
       if (r.error) throw new Error(r.error);
       if (!r.questions || !r.questions.length) throw new Error("문제를 만들지 못했어요");
       setExamData(r);
       setExamIdx(0);
       setExamSel({});
       setExamStage("taking");
+      setExamLoading(false);
+      // 2차: 나머지 문항을 백그라운드로 이어받기(앞 문제와 중복 회피)
+      fetchMoreExam(r);
     } catch (e) {
       showToast("모의고사 생성 실패: " + String(e.message || e).slice(0, 60), "error");
       setExamStage("setup");
-    } finally {
       setExamLoading(false);
+    }
+  }
+  async function fetchMoreExam(firstBatch) {
+    const need = EXAM_TOTAL - (firstBatch.questions ? firstBatch.questions.length : 0);
+    if (need <= 0) return;
+    setExamFetchingMore(true);
+    try {
+      const avoid = firstBatch.questions.map((q) => q.q).filter(Boolean);
+      const r2 = await api({ action: "examQuiz", subject: examSubject, level: examLevel, count: need, avoid });
+      if (r2 && r2.questions && r2.questions.length) {
+        setExamData((prev) => {
+          if (!prev) return prev;
+          return { ...prev, questions: prev.questions.concat(r2.questions), tip: prev.tip || r2.tip };
+        });
+      }
+    } catch (e) {
+      // 뒤 문항 실패해도 앞 문항으로는 계속 진행 가능 — 조용히 무시하되 안내
+      showToast("뒤 문항을 더 불러오지 못했어요(앞 문항으로 계속 가능)", "error");
+    } finally {
+      setExamFetchingMore(false);
     }
   }
   function examChoose(qi, oi) {
@@ -582,7 +609,8 @@ function App() {
     setExamSel((prev) => ({ ...prev, [qi]: oi }));
   }
   function examNext() {
-    if (examIdx < examData.questions.length - 1) setExamIdx(examIdx + 1);
+    // 목표 총 문항(EXAM_TOTAL) 기준. 마지막이면 결과로.
+    if (examIdx < EXAM_TOTAL - 1) setExamIdx(examIdx + 1);
     else setExamStage("result");
   }
   function examScore() {
@@ -3899,7 +3927,20 @@ function App() {
                 {/* 풀이 */}
                 {examStage === "taking" && examData && (() => {
                   const q = examData.questions[examIdx];
-                  const total = examData.questions.length;
+                  const total = EXAM_TOTAL; // 목표 총 문항(뒤 문항은 백그라운드로 채워짐)
+                  const loaded = examData.questions.length;
+                  // 현재 문항이 아직 백그라운드 로딩 중이면 대기 화면
+                  if (!q) {
+                    return (
+                      <div style={{ textAlign: "center", padding: "50px 0" }}>
+                        <div style={{ display: "inline-block", width: 22, height: 22, border: `2px solid ${C.line}`,
+                          borderTopColor: C.gold, borderRadius: "50%", animation: "vd-spin .8s linear infinite" }} />
+                        <div style={{ fontSize: 13, color: C.sub, marginTop: 14 }}>
+                          다음 문제를 불러오는 중… ({loaded}/{total} 준비됨)
+                        </div>
+                      </div>
+                    );
+                  }
                   const chosen = examSel[examIdx];
                   const answered = chosen != null;
                   return (
@@ -3908,7 +3949,7 @@ function App() {
                         <span style={{ fontSize: 12, color: C.goldDim }}>
                           {examSubject === "spirits" ? "Spirits" : "Wines"} · Level {examLevel}
                         </span>
-                        <span style={{ fontSize: 12, color: C.sub }}>{examIdx + 1} / {total}</span>
+                        <span style={{ fontSize: 12, color: C.sub }}>{examIdx + 1} / {total}{examFetchingMore && loaded < total ? " · 뒤 문항 준비 중" : ""}</span>
                       </div>
                       <div style={{ height: 4, background: C.line, borderRadius: 2, marginBottom: 20 }}>
                         <div style={{ height: "100%", width: ((examIdx + 1) / total * 100) + "%",
