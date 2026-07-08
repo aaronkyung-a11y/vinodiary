@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.07";
+const APP_VERSION = "v1.08";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -430,7 +430,7 @@ function App() {
     };
     await savingApi({ action: "save", entry }, "위시리스트에 담음");
     setFoodWishDone((prev) => ({ ...prev, [p.name]: true }));
-    refresh();
+    upsertLocal(entry);
   }
   const [profile, setProfile] = useState(null);     // 취향 분석 결과
   const [profileLoading, setProfileLoading] = useState(false);
@@ -1248,6 +1248,22 @@ function App() {
     }
   }
 
+  // 저장한 항목을 로컬 목록·캐시에 즉시 반영(낙관적 업데이트).
+  // 서버 전체 재조회(refresh) 없이 화면을 바로 갱신 → 저장 체감 속도 개선.
+  // 같은 id가 있으면 교체, 없으면 앞에 추가.
+  function upsertLocal(entry) {
+    if (!entry) return;
+    setEntries((prev) => {
+      const list = prev || [];
+      const idx = list.findIndex((x) => x.id === entry.id);
+      const next = idx >= 0
+        ? list.map((x) => (x.id === entry.id ? { ...x, ...entry } : x))
+        : [entry, ...list];
+      try { writeEntriesCache(curProfile, next); } catch (e) {}
+      return next;
+    });
+  }
+
   // 타임아웃+재시도 fetch. AbortController로 각 시도를 timeoutMs 후 중단하고 재시도.
   // 콜드스타트로 첫 요청이 느려도, 그 요청이 서버를 깨우므로 다음 시도가 빨라진다.
   async function fetchWithRetry(url, opts) {
@@ -1493,7 +1509,7 @@ function App() {
     };
     await savingApi({ action: "save", entry }, status === "tasted" ? "셀러에 저장됨" : "위시리스트에 담음");
     setMenuDone((prev) => ({ ...prev, [item.name]: status || "wishlist" }));
-    refresh();
+    upsertLocal(entry);
   }
 
   async function saveResult(score, status) {
@@ -1531,7 +1547,7 @@ function App() {
     await savingApi({ action: "save", entry }, status === "wishlist" ? "위시리스트에 담음" : "저장됨");
     setResult(null); setText(""); setImageData(null); setImagePreview(null);
     setCompanions(""); setNote("");
-    refresh();
+    upsertLocal(entry);
   }
 
   // 추천 술을 셀러/위시리스트로 저장
@@ -1557,7 +1573,7 @@ function App() {
     await savingApi({ action: "save", entry }, status === "wishlist" ? "위시리스트에 담음" : "셀러에 저장됨");
     // 이 추천 카드를 '처리됨'으로 표시
     setRecDone((prev) => ({ ...prev, [rec.name]: { status: status || "tasted", score: myScore ?? null } }));
-    refresh();
+    upsertLocal(entry);
   }
 
   async function setScore(id, score) {
@@ -1810,7 +1826,7 @@ function App() {
           infoUncertain: champion.infoUncertain || false,
         };
         await savingApi({ action: "save", entry }, "우승작 위시리스트에 담음");
-        refresh();
+        upsertLocal(entry);
       }
     }
   }
