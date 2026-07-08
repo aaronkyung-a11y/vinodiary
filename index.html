@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.08";
+const APP_VERSION = "v1.09";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -512,6 +512,7 @@ function App() {
   // ── Vino Quiz 상태 ──
   const [quizStage, setQuizStage] = useState("setup"); // setup | intro | playing | result
   const [quizWineInput, setQuizWineInput] = useState(""); // 텍스트 입력
+  const [quizKind, setQuizKind] = useState(""); // 셀러에서 넘어온 종류(wine/whisky), 텍스트 입력이면 빈값
   const [quizImageData, setQuizImageData] = useState(null); // 라벨 사진 base64
   const [quizImagePreview, setQuizImagePreview] = useState(null);
   const [quizData, setQuizData] = useState(null); // 백엔드 생성 결과
@@ -550,10 +551,10 @@ function App() {
 
   async function startQuiz() {
     const nm = quizWineInput.trim();
-    if (!nm && !quizImageData) { showToast("와인 이름이나 라벨 사진을 넣어 주세요", "error"); return; }
+    if (!nm && !quizImageData) { showToast("와인·위스키 이름이나 라벨 사진을 넣어 주세요", "error"); return; }
     setQuizLoading(true);
     try {
-      const r = await api({ action: "vinoQuiz", name: nm || undefined, imageData: quizImageData || undefined });
+      const r = await api({ action: "vinoQuiz", name: nm || undefined, imageData: quizImageData || undefined, kind: quizKind || undefined });
       if (r.error) throw new Error(r.error);
       if (!r.questions || !r.questions.length) throw new Error("퀴즈를 만들지 못했어요");
       setQuizData(r);
@@ -616,7 +617,7 @@ function App() {
   }
 
   function resetQuiz() {
-    setQuizStage("setup"); setQuizData(null); setQuizWineInput("");
+    setQuizStage("setup"); setQuizData(null); setQuizWineInput(""); setQuizKind("");
     setQuizImageData(null); setQuizImagePreview(null);
     setQuizQIndex(0); setQuizSelById({}); setQuizScores({}); setQuizAnswers({});
   }
@@ -625,6 +626,7 @@ function App() {
   function quizFromCellar(e) {
     setTab("quiz");
     setQuizWineInput(e.name || "");
+    setQuizKind(e.kind || "");
     setQuizImageData(null); setQuizImagePreview(e.image || null);
     setQuizStage("setup");
     showToast("'" + (e.name || "와인") + "'으로 퀴즈 준비", "done");
@@ -3142,8 +3144,8 @@ function App() {
                         ❖ 피드에 공유
                       </button>
                     )}
-                    {/* 퀴즈로 (와인만) */}
-                    {e.kind !== "whisky" && (
+                    {/* 퀴즈로 (와인·위스키 모두) */}
+                    {(
                       <button onClick={() => quizFromCellar(e)}
                         style={{ marginBottom: 10, marginLeft: 6, padding: "6px 12px", fontSize: 12,
                           background: "transparent", color: C.gold, border: `1px solid ${C.goldDim}`,
@@ -3808,8 +3810,8 @@ function App() {
                 <input ref={quizCameraRef} type="file" accept="image/*" capture="environment" onChange={onPickQuizImage} style={{ display: "none" }} />
                 <input ref={quizFileRef} type="file" accept="image/*" onChange={onPickQuizImage} style={{ display: "none" }} />
 
-                <input value={quizWineInput} onChange={(e) => setQuizWineInput(e.target.value)}
-                  placeholder="또는 와인 이름 입력 (예: Barolo, Cloudy Bay)"
+                <input value={quizWineInput} onChange={(e) => { setQuizWineInput(e.target.value); setQuizKind(""); }}
+                  placeholder="또는 와인·위스키 이름 입력 (예: Barolo, Macallan)"
                   style={{ width: "100%", boxSizing: "border-box", padding: "12px 14px", background: C.panel,
                     border: `1px solid ${C.line}`, borderRadius: 12, color: C.text, fontSize: 14, marginBottom: 16 }} />
 
