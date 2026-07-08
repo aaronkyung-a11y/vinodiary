@@ -51,7 +51,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.09";
+const APP_VERSION = "v1.10";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -513,6 +513,15 @@ function App() {
   const [quizStage, setQuizStage] = useState("setup"); // setup | intro | playing | result
   const [quizWineInput, setQuizWineInput] = useState(""); // 텍스트 입력
   const [quizKind, setQuizKind] = useState(""); // 셀러에서 넘어온 종류(wine/whisky), 텍스트 입력이면 빈값
+  // WSET 모의고사 모드
+  const [quizMode, setQuizMode] = useState("taste"); // "taste"(시음) | "exam"(모의고사)
+  const [examSubject, setExamSubject] = useState("wine"); // wine | spirits
+  const [examLevel, setExamLevel] = useState(1); // 1~3
+  const [examStage, setExamStage] = useState("setup"); // setup | loading | taking | result
+  const [examData, setExamData] = useState(null); // {questions, tip, ...}
+  const [examIdx, setExamIdx] = useState(0); // 현재 문항
+  const [examSel, setExamSel] = useState({}); // {문항index: 선택한 보기index}
+  const [examLoading, setExamLoading] = useState(false);
   const [quizImageData, setQuizImageData] = useState(null); // 라벨 사진 base64
   const [quizImagePreview, setQuizImagePreview] = useState(null);
   const [quizData, setQuizData] = useState(null); // 백엔드 생성 결과
@@ -548,6 +557,43 @@ function App() {
     });
   }
   function quizPlayerLabel(k) { return (k === "me" || k === "나") ? myLabel : k; }
+
+  // ===== WSET 모의고사 =====
+  async function startExam() {
+    setExamLoading(true);
+    setExamStage("loading");
+    try {
+      const r = await api({ action: "examQuiz", subject: examSubject, level: examLevel, count: 10 });
+      if (r.error) throw new Error(r.error);
+      if (!r.questions || !r.questions.length) throw new Error("문제를 만들지 못했어요");
+      setExamData(r);
+      setExamIdx(0);
+      setExamSel({});
+      setExamStage("taking");
+    } catch (e) {
+      showToast("모의고사 생성 실패: " + String(e.message || e).slice(0, 60), "error");
+      setExamStage("setup");
+    } finally {
+      setExamLoading(false);
+    }
+  }
+  function examChoose(qi, oi) {
+    if (examSel[qi] != null) return; // 이미 답한 문항은 고정
+    setExamSel((prev) => ({ ...prev, [qi]: oi }));
+  }
+  function examNext() {
+    if (examIdx < examData.questions.length - 1) setExamIdx(examIdx + 1);
+    else setExamStage("result");
+  }
+  function examScore() {
+    if (!examData) return { correct: 0, total: 0 };
+    let correct = 0;
+    examData.questions.forEach((q, i) => { if (examSel[i] === q.answer) correct++; });
+    return { correct, total: examData.questions.length };
+  }
+  function resetExam() {
+    setExamStage("setup"); setExamData(null); setExamIdx(0); setExamSel({});
+  }
 
   async function startQuiz() {
     const nm = quizWineInput.trim();
@@ -3782,7 +3828,208 @@ function App() {
             `}</style>
             <div className="quiz-wide">
 
-            {/* 1) 셋업: 와인 지정 + 참여자 */}
+            {/* 모드 전환: 시음 퀴즈 / WSET 모의고사 */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+              {[["taste", "시음 퀴즈"], ["exam", "WSET 모의고사"]].map(([m, label]) => (
+                <button key={m} onClick={() => setQuizMode(m)}
+                  style={{ flex: 1, padding: "10px 0", fontSize: 13, borderRadius: 10, cursor: "pointer",
+                    background: quizMode === m ? C.gold : "transparent",
+                    color: quizMode === m ? "#1a1410" : C.sub,
+                    border: `1px solid ${quizMode === m ? C.gold : C.line}`, fontWeight: quizMode === m ? 700 : 400 }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* ===== WSET 모의고사 모드 ===== */}
+            {quizMode === "exam" && (
+              <div>
+                {/* 셋업 */}
+                {examStage === "setup" && (
+                  <div>
+                    <div style={{ fontFamily: "Georgia, serif", fontSize: 22, color: C.gold, marginBottom: 4 }}>WSET 모의고사</div>
+                    <div style={{ fontSize: 13, color: C.sub, marginBottom: 18 }}>과목과 레벨을 고르면 10문항이 출제돼요. (WSET 커리큘럼 범위에 맞춘 연습문제)</div>
+
+                    <div style={{ fontSize: 12, color: C.goldDim, marginBottom: 8 }}>과목</div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+                      {[["wine", "와인 Wines"], ["spirits", "증류주 Spirits"]].map(([s, label]) => (
+                        <button key={s} onClick={() => setExamSubject(s)}
+                          style={{ flex: 1, padding: "12px 0", fontSize: 13, borderRadius: 10, cursor: "pointer",
+                            background: examSubject === s ? C.panel2 : "transparent",
+                            color: examSubject === s ? C.gold : C.sub,
+                            border: `1px solid ${examSubject === s ? C.gold : C.line}` }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div style={{ fontSize: 12, color: C.goldDim, marginBottom: 8 }}>레벨</div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                      {[1, 2, 3].map((lv) => (
+                        <button key={lv} onClick={() => setExamLevel(lv)}
+                          style={{ flex: 1, padding: "12px 0", fontSize: 14, borderRadius: 10, cursor: "pointer",
+                            background: examLevel === lv ? C.panel2 : "transparent",
+                            color: examLevel === lv ? C.gold : C.sub, fontWeight: examLevel === lv ? 700 : 400,
+                            border: `1px solid ${examLevel === lv ? C.gold : C.line}` }}>
+                          Level {lv}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 11, color: C.sub, marginBottom: 20 }}>
+                      {examLevel === 1 ? "기초 — 품종·스타일·서빙·기본 페어링" :
+                       examLevel === 2 ? "중급 — 산지·양조 영향·라벨·제조 원리" :
+                       "고급 — 떼루아·기후·세부 산지·양조 상세"}
+                    </div>
+
+                    <button onClick={startExam} disabled={examLoading}
+                      style={{ width: "100%", padding: "14px 0", fontSize: 15, borderRadius: 12,
+                        background: C.gold, color: "#1a1410", border: "none", fontWeight: 700, cursor: "pointer" }}>
+                      {examLoading ? "출제 중…" : "모의고사 시작"}
+                    </button>
+                  </div>
+                )}
+
+                {/* 로딩 */}
+                {examStage === "loading" && (
+                  <div style={{ textAlign: "center", padding: "60px 0", color: C.sub }}>
+                    <div style={{ fontSize: 14 }}>문제를 출제하고 있어요…</div>
+                  </div>
+                )}
+
+                {/* 풀이 */}
+                {examStage === "taking" && examData && (() => {
+                  const q = examData.questions[examIdx];
+                  const total = examData.questions.length;
+                  const chosen = examSel[examIdx];
+                  const answered = chosen != null;
+                  return (
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                        <span style={{ fontSize: 12, color: C.goldDim }}>
+                          {examSubject === "spirits" ? "Spirits" : "Wines"} · Level {examLevel}
+                        </span>
+                        <span style={{ fontSize: 12, color: C.sub }}>{examIdx + 1} / {total}</span>
+                      </div>
+                      <div style={{ height: 4, background: C.line, borderRadius: 2, marginBottom: 20 }}>
+                        <div style={{ height: "100%", width: ((examIdx + 1) / total * 100) + "%",
+                          background: C.gold, borderRadius: 2, transition: "width .3s" }} />
+                      </div>
+
+                      <div style={{ fontSize: 16, color: C.text, marginBottom: 18, lineHeight: 1.5, fontWeight: 500 }}>
+                        {examIdx + 1}. {q.q}
+                      </div>
+
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {q.options.map((opt, oi) => {
+                          let bg = "transparent", bd = C.line, col = C.text;
+                          if (answered) {
+                            if (oi === q.answer) { bg = "rgba(120,160,110,0.15)"; bd = "#7CA06E"; col = "#7CA06E"; }
+                            else if (oi === chosen) { bg = "rgba(180,90,90,0.12)"; bd = "#B45A5A"; col = "#B45A5A"; }
+                          }
+                          return (
+                            <button key={oi} onClick={() => examChoose(examIdx, oi)} disabled={answered}
+                              style={{ textAlign: "left", padding: "13px 16px", fontSize: 14, borderRadius: 10,
+                                background: bg, color: col, border: `1px solid ${bd}`,
+                                cursor: answered ? "default" : "pointer", lineHeight: 1.4 }}>
+                              {String.fromCharCode(97 + oi)}) {opt}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {answered && (
+                        <div style={{ marginTop: 16, padding: "12px 14px", borderRadius: 10,
+                          background: C.panel2, border: `1px solid ${C.line}` }}>
+                          <div style={{ fontSize: 12, color: chosen === q.answer ? "#7CA06E" : "#B45A5A", fontWeight: 700, marginBottom: 4 }}>
+                            {chosen === q.answer ? "정답" : "오답"}
+                          </div>
+                          {q.explain && <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{q.explain}</div>}
+                        </div>
+                      )}
+
+                      {answered && (
+                        <button onClick={examNext}
+                          style={{ width: "100%", marginTop: 16, padding: "13px 0", fontSize: 14, borderRadius: 12,
+                            background: C.gold, color: "#1a1410", border: "none", fontWeight: 700, cursor: "pointer" }}>
+                          {examIdx < total - 1 ? "다음 문제" : "결과 보기"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* 결과 */}
+                {examStage === "result" && examData && (() => {
+                  const { correct, total } = examScore();
+                  const pct = Math.round(correct / total * 100);
+                  const pass = pct >= 70; // WSET 통과선 참고(70%)
+                  return (
+                    <div>
+                      <div style={{ textAlign: "center", padding: "20px 0 24px" }}>
+                        <div style={{ fontSize: 13, color: C.sub, marginBottom: 6 }}>
+                          {examSubject === "spirits" ? "Spirits" : "Wines"} · Level {examLevel}
+                        </div>
+                        <div style={{ fontFamily: "Georgia, serif", fontSize: 44, color: pass ? "#7CA06E" : C.gold, fontWeight: 700 }}>
+                          {correct} / {total}
+                        </div>
+                        <div style={{ fontSize: 14, color: C.sub, marginTop: 4 }}>
+                          {pct}% · {pass ? "합격선(70%) 통과" : "합격선(70%) 미달"}
+                        </div>
+                      </div>
+
+                      {examData.tip && (
+                        <div style={{ padding: "12px 14px", borderRadius: 10, background: C.panel2,
+                          border: `1px solid ${C.line}`, marginBottom: 18, fontSize: 13, color: C.text, lineHeight: 1.5 }}>
+                          {examData.tip}
+                        </div>
+                      )}
+
+                      {/* 오답 리뷰 */}
+                      <div style={{ fontSize: 12, color: C.goldDim, marginBottom: 10 }}>문항 리뷰</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+                        {examData.questions.map((q, i) => {
+                          const ok = examSel[i] === q.answer;
+                          return (
+                            <div key={i} style={{ padding: "12px 14px", borderRadius: 10,
+                              background: C.panel, border: `1px solid ${ok ? C.line : "#B45A5A"}` }}>
+                              <div style={{ fontSize: 13, color: C.text, marginBottom: 6, lineHeight: 1.4 }}>
+                                <span style={{ color: ok ? "#7CA06E" : "#B45A5A", fontWeight: 700 }}>{ok ? "○" : "✕"}</span> {i + 1}. {q.q}
+                              </div>
+                              <div style={{ fontSize: 12, color: "#7CA06E", marginBottom: 2 }}>
+                                정답: {String.fromCharCode(97 + q.answer)}) {q.options[q.answer]}
+                              </div>
+                              {!ok && examSel[i] != null && (
+                                <div style={{ fontSize: 12, color: "#B45A5A", marginBottom: 2 }}>
+                                  내 답: {String.fromCharCode(97 + examSel[i])}) {q.options[examSel[i]]}
+                                </div>
+                              )}
+                              {q.explain && <div style={{ fontSize: 12, color: C.sub, marginTop: 4, lineHeight: 1.5 }}>{q.explain}</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={startExam}
+                          style={{ flex: 1, padding: "13px 0", fontSize: 14, borderRadius: 12,
+                            background: C.gold, color: "#1a1410", border: "none", fontWeight: 700, cursor: "pointer" }}>
+                          같은 레벨 새 문제
+                        </button>
+                        <button onClick={resetExam}
+                          style={{ flex: 1, padding: "13px 0", fontSize: 14, borderRadius: 12,
+                            background: "transparent", color: C.sub, border: `1px solid ${C.line}`, cursor: "pointer" }}>
+                          레벨 바꾸기
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* ===== 시음 퀴즈 모드 (기존) ===== */}
+            {quizMode === "taste" && (<>
+
             {quizStage === "setup" && (
               <div>
                 <div style={{ fontFamily: "Georgia, serif", fontSize: 22, color: C.gold, marginBottom: 4 }}>Vino Quiz</div>
@@ -4028,6 +4275,8 @@ function App() {
                 </div>
               </div>
             )}
+
+            </>)}
 
             </div>
           </section>
