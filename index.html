@@ -38,8 +38,6 @@
   }
 </script>
 <script type="text/babel" data-presets="react">
-const { useState, useEffect, useRef } = React;
-
 // ============================================================
 // VINO·DIARY — 와인·위스키 취향 다이어리
 // v0.2  (GitHub Pages + Google Sheets via Apps Script)
@@ -51,7 +49,7 @@ const { useState, useEffect, useRef } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.15";
+const APP_VERSION = "v1.17";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -68,15 +66,8 @@ function kstDate() {
 }
 
 // ---------- API 레이어 ----------
-const DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbzW91cg-naS0BkDikV48ac2x7-LBw9lNNS-Ar2TBJx54Gj0FvbwE_4Aw34CsLwmIbBKSw/exec";
-let _memUrl = "";
 function getApiUrl() {
-  try { return localStorage.getItem(API_KEY_LS) || _memUrl || DEFAULT_API_URL; }
-  catch (e) { return _memUrl || DEFAULT_API_URL; }
-}
-function setApiUrl(v) {
-  _memUrl = v;
-  try { localStorage.setItem(API_KEY_LS, v); } catch (e) {}
+  return localStorage.getItem(API_KEY_LS) || "";
 }
 const PROFILE_LS = "vinodiary:profile"; // 현재 선택된 프로필명
 const PROFILES_LS = "vinodiary:profiles"; // 프로필 목록 JSON
@@ -323,7 +314,7 @@ function ScoreRing({ value, size = 64, predicted = false }) {
   );
 }
 
-function App() {
+export default function App() {
   const [ready, setReady] = useState(!!getApiUrl());
   const [urlInput, setUrlInput] = useState(getApiUrl());
   const [tab, setTab] = useState("add");
@@ -1415,7 +1406,7 @@ function App() {
       setError("올바른 Web App URL을 입력하세요.");
       return;
     }
-    setApiUrl(urlInput.trim());
+    localStorage.setItem(API_KEY_LS, urlInput.trim());
     setError(null);
     setReady(true);
   }
@@ -2865,10 +2856,11 @@ function App() {
                   const inf = result.info;
                   const isWhisky = result.kind === "whisky";
                   const rows = isWhisky
-                    ? [["캐스크", inf.cask], ["지역", inf.caskRegion]]
-                    : [["품종", inf.grapes], ["지역", inf.region]];
+                    ? [["캐스크", inf.cask], ["지역", inf.caskRegion], ["서빙", inf.servingTemp]]
+                    : [["품종", inf.grapes], ["지역", inf.region], ["서빙 온도", inf.servingTemp]];
                   const shown = rows.filter((r) => r[1] && String(r[1]).trim());
-                  if (!shown.length) return null;
+                  const dw = inf.drinkWindow && String(inf.drinkWindow).trim();
+                  if (!shown.length && !dw) return null;
                   return (
                     <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10,
                       background: C.panel2, border: `1px solid ${C.line}` }}>
@@ -2877,6 +2869,12 @@ function App() {
                           <span style={{ color: C.goldDim, marginRight: 6 }}>{k}</span>{v}
                         </div>
                       ))}
+                      {dw && (
+                        <div style={{ fontSize: 12, color: C.text, marginBottom: 3 }}>
+                          <span style={{ color: C.goldDim, marginRight: 6 }}>시음 적기</span>{dw}
+                          <span style={{ color: C.sub, fontSize: 11 }}> (추정)</span>
+                        </div>
+                      )}
                       {result.infoUncertain && (
                         <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>※ 일부 추정 정보예요</div>
                       )}
@@ -3157,10 +3155,11 @@ function App() {
                       const inf = e.info;
                       const isWhisky = e.kind === "whisky";
                       const rows = isWhisky
-                        ? [["캐스크", inf.cask], ["지역", inf.caskRegion]]
-                        : [["품종", inf.grapes], ["지역", inf.region]];
+                        ? [["캐스크", inf.cask], ["지역", inf.caskRegion], ["서빙", inf.servingTemp]]
+                        : [["품종", inf.grapes], ["지역", inf.region], ["서빙 온도", inf.servingTemp]];
                       const shown = rows.filter((r) => r[1] && String(r[1]).trim());
-                      if (!shown.length) return null;
+                      const dw = inf.drinkWindow && String(inf.drinkWindow).trim();
+                      if (!shown.length && !dw) return null;
                       return (
                         <div style={{ marginBottom: 10, padding: "10px 12px", borderRadius: 10,
                           background: C.panel2, border: `1px solid ${C.line}` }}>
@@ -3169,6 +3168,12 @@ function App() {
                               <span style={{ color: C.goldDim, marginRight: 6 }}>{k}</span>{v}
                             </div>
                           ))}
+                          {dw && (
+                            <div style={{ fontSize: 12, color: C.text, marginBottom: 3 }}>
+                              <span style={{ color: C.goldDim, marginRight: 6 }}>시음 적기</span>{dw}
+                              <span style={{ color: C.sub, fontSize: 11 }}> (추정)</span>
+                            </div>
+                          )}
                           {e.infoUncertain && (
                             <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>※ 일부 추정 정보예요</div>
                           )}
@@ -4385,14 +4390,6 @@ function App() {
   );
 }
 
-
-try {
-  const root = ReactDOM.createRoot(document.getElementById("root"));
-  root.render(<App />);
-} catch (e) {
-  var el=document.getElementById('err'); el.style.display='block';
-  el.textContent='렌더 에러: '+e.message;
-}
 </script>
 </body>
 </html>
