@@ -38,6 +38,8 @@
   }
 </script>
 <script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
 // ============================================================
 // VINO·DIARY — 와인·위스키 취향 다이어리
 // v0.2  (GitHub Pages + Google Sheets via Apps Script)
@@ -313,8 +315,7 @@ function ScoreRing({ value, size = 64, predicted = false }) {
     </svg>
   );
 }
-
-export default function App() {
+function App() {
   const [ready, setReady] = useState(!!getApiUrl());
   const [urlInput, setUrlInput] = useState(getApiUrl());
   const [tab, setTab] = useState("add");
@@ -4389,6 +4390,9 @@ export default function App() {
     </div>
   );
 }
+
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 
 </script>
 </body>
