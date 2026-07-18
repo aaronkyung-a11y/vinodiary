@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.17";
+const APP_VERSION = "v1.18";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -498,6 +498,8 @@ function App() {
   const editFileRef = useRef(null);
   const [menuResult, setMenuResult] = useState(null);
   const [menuDone, setMenuDone] = useState({}); // 메뉴 항목별 처리 {name: 'wishlist'|'tasted'}
+  const [menuDetail, setMenuDetail] = useState({}); // 메뉴 항목 상세 {name: {...detail, _open}}
+  const [menuDetailLoading, setMenuDetailLoading] = useState(null); // 상세 로딩중인 이름
   const [menuLoading, setMenuLoading] = useState(false);
   const [candidates, setCandidates] = useState(null); // 단일 분석 후보 목록
   const [candLoading, setCandLoading] = useState(false);
@@ -1565,17 +1567,21 @@ function App() {
 
   // 메뉴판 결과의 한 항목을 위시리스트/셀러로 저장
   async function saveMenuItem(item, status) {
+    // 상세를 열어봤으면 그 정보(향미축·품종·지역·서빙온도·시음적기 등)도 함께 저장
+    const d = menuDetail[item.name] && !menuDetail[item.name].error ? menuDetail[item.name] : null;
     const entry = {
       id: Date.now() + Math.floor(Math.random() * 1000),
       date: kstNow(),
       name: item.name, kind: item.kind,
-      resembles: item.why || "",
+      resembles: (d && d.resembles) || item.why || "",
       predictedScore: item.predictedScore ?? null,
-      reason: item.why || "",
+      reason: (d && d.reason) || item.why || "",
       myScore: null, image: "",
       status: status || "wishlist",
-      axes: null, subtype: item.subtype || "",
-      nameKo: item.nameKo || "",
+      axes: (d && d.axes) || null,
+      subtype: (d && d.subtype) || item.subtype || "",
+      nameKo: (d && d.nameKo) || item.nameKo || "",
+      info: (d && d.info) || null,
     };
     await savingApi({ action: "save", entry }, status === "tasted" ? "셀러에 저장됨" : "위시리스트에 담음");
     setMenuDone((prev) => ({ ...prev, [item.name]: status || "wishlist" }));
@@ -2060,6 +2066,23 @@ function App() {
       setError("합치기에 실패했어요.");
     } finally {
       setMerging(false);
+    }
+  }
+
+  async function loadMenuDetail(item) {
+    const name = item.name;
+    if (menuDetail[name]) {
+      setMenuDetail((p) => ({ ...p, [name]: { ...p[name], _open: !p[name]._open } }));
+      return;
+    }
+    setMenuDetailLoading(name);
+    try {
+      const r = await api({ action: "detail", name, kind: item.kind });
+      setMenuDetail((p) => ({ ...p, [name]: { ...r, _open: true } }));
+    } catch (e) {
+      setMenuDetail((p) => ({ ...p, [name]: { error: true, _open: true } }));
+    } finally {
+      setMenuDetailLoading(null);
     }
   }
 
@@ -2783,8 +2806,65 @@ function App() {
                               <span>📍</span>{it.where}
                             </div>
                           )}
+                          {/* 자세히 토글 */}
+                          <button onClick={() => loadMenuDetail(it)}
+                            style={{ marginTop: 6, padding: 0, background: "none", border: "none",
+                              color: C.goldDim, fontSize: 11, cursor: "pointer" }}>
+                            {menuDetailLoading === it.name ? "불러오는 중…"
+                              : (menuDetail[it.name] && menuDetail[it.name]._open) ? "접기 ▲" : "자세히 ▼"}
+                          </button>
                         </div>
                       </div>
+
+                      {/* 상세 펼침 영역 */}
+                      {menuDetail[it.name] && menuDetail[it.name]._open && !menuDetail[it.name].error && (() => {
+                        const d = menuDetail[it.name];
+                        return (
+                          <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.line}`,
+                            fontSize: 13, lineHeight: 1.6 }}>
+                            {d.profile && (<div style={{ marginBottom: 8 }}>
+                              <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>프로파일</span>
+                              <div style={{ color: C.text, marginTop: 2 }}>{d.profile}</div></div>)}
+                            {d.forYou && (<div style={{ marginBottom: 8 }}>
+                              <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>당신에게</span>
+                              <div style={{ color: C.text, marginTop: 2 }}>{d.forYou}</div></div>)}
+                            {d.pairing && (<div style={{ marginBottom: 8 }}>
+                              <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>페어링</span>
+                              <div style={{ color: C.text, marginTop: 2 }}>{d.pairing}</div></div>)}
+                            {d.serving && (<div style={{ marginBottom: 8 }}>
+                              <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>서빙 팁</span>
+                              <div style={{ color: C.text, marginTop: 2 }}>{d.serving}</div></div>)}
+                            {d.info && (d.info.servingTemp || d.info.drinkWindow) && (
+                              <div style={{ marginBottom: 8, padding: "8px 10px", borderRadius: 8,
+                                background: C.panel2, border: `1px solid ${C.line}` }}>
+                                {d.info.servingTemp && (
+                                  <div style={{ fontSize: 12, color: C.text }}>
+                                    <span style={{ color: C.goldDim, marginRight: 6 }}>서빙 온도</span>{d.info.servingTemp}
+                                  </div>
+                                )}
+                                {d.info.drinkWindow && (
+                                  <div style={{ fontSize: 12, color: C.text, marginTop: 2 }}>
+                                    <span style={{ color: C.goldDim, marginRight: 6 }}>시음 적기</span>{d.info.drinkWindow}
+                                    <span style={{ color: C.sub, fontSize: 11 }}> (추정)</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {d.axes && (
+                              <div style={{ marginBottom: 8 }}>
+                                <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>특성</span>
+                                <AxisBars axes={d.axes} />
+                              </div>
+                            )}
+                            {d.est && <div style={{ color: C.goldDim, fontSize: 12 }}>{d.est}</div>}
+                          </div>
+                        );
+                      })()}
+                      {menuDetail[it.name] && menuDetail[it.name]._open && menuDetail[it.name].error && (
+                        <div style={{ marginTop: 10, fontSize: 12, color: C.sub }}>
+                          상세를 불러오지 못했어요. 다시 시도해 주세요.
+                        </div>
+                      )}
                       {menuDone[it.name] ? (
                         <div style={{ marginTop: 10, padding: "8px 12px", background: C.panel2,
                           borderRadius: 8, fontSize: 12, color: C.gold, display: "flex",
