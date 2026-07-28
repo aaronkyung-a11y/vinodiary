@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.20";
+const APP_VERSION = "v1.22";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -830,9 +830,13 @@ function App() {
     setPosts((prev) => prev ? [post, ...prev] : prev);
   }
 
+  const toastTimerRef = useRef(null);
   function showToast(msg, kind) {
     setToast({ msg, kind: kind || "done" });
-    if (kind !== "loading") setTimeout(() => setToast(null), 1800);
+    // 이전 자동닫힘 타이머 취소 — 안 하면 직전 완료 토스트의 타이머가
+    // 새로 뜬 로딩 토스트("상세 분석 중…" 등)까지 지워버림
+    if (toastTimerRef.current) { clearTimeout(toastTimerRef.current); toastTimerRef.current = null; }
+    if (kind !== "loading") toastTimerRef.current = setTimeout(() => setToast(null), 1800);
   }
   function saveName(name) {
     setUserName(name);
@@ -1566,15 +1570,23 @@ function App() {
     }
   }
 
-  // 시음 적기 값에 AI가 "(추정)"을 이미 넣어오는 경우 제거(표시 시 한 번만 붙임)
-  function fmtDW(v) {
-    return String(v || "").replace(/\s*\(추정\)/g, "").trim();
+  // 값 안에 AI가 넣어온 "추정" 표기를 제거(표시 시 UI가 한 번만 붙임).
+  // 변형 대응: (추정), (추정치), (추정가), (추정, ~), 끝에 붙은 '추정'/'추정치' 단어 등
+  function stripEst(v) {
+    return String(v || "")
+      .replace(/\(\s*추정[^)]*\)/g, "")
+      .replace(/(^|\s)추정[치가]?\s*$/g, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
   }
+  function fmtDW(v) { return stripEst(v); }
 
   // 가격 표시 문자열: 메뉴판 실측(priceEst===false)만 그대로, 나머지는 "(추정)" 부착
   function priceLabel(inf) {
     if (!inf || !inf.price) return null;
-    return String(inf.price) + (inf.priceEst === false ? "" : " (추정)");
+    var p = inf.priceEst === false ? String(inf.price).trim() : stripEst(inf.price);
+    if (!p) return null;
+    return p + (inf.priceEst === false ? "" : " (추정)");
   }
 
   // detail 응답에서 저장용 상세 필드 구성(프로파일/당신에게/페어링/서빙 팁)
