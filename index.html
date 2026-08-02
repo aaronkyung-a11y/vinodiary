@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.23";
+const APP_VERSION = "v1.25";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -77,8 +77,11 @@ const ENTRIES_CACHE_PREFIX = "vinodiary:cache:entries:"; // 프로필별 entries
 // 깨진 java Object 문자열 방어(표시용). 복구 전 데이터가 화면에 노출되지 않도록.
 function safeStr(v) {
   if (v == null) return "";
+  // AI가 문자열 대신 배열·객체로 반환하는 경우 이름만 뽑아 문자열화
+  if (Array.isArray(v)) return v.map(safeStr).filter(Boolean).join(", ");
+  if (typeof v === "object") return safeStr(v.name || v.title || v.text || "");
   const s = String(v);
-  return /\[L?java\.lang\.Object;@|\[Ljava/.test(s) ? "" : s;
+  return /\[L?java\.lang\.Object;@|\[Ljava|\[object Object\]/.test(s) ? "" : s;
 }
 function entriesCacheKey(prof) { return ENTRIES_CACHE_PREFIX + (prof || ""); }
 function readEntriesCache(prof) {
@@ -397,6 +400,7 @@ function App() {
   const [priceFillProg, setPriceFillProg] = useState(null); // {done,total} 가격 일괄 채우기 진행
   const [showCellarList, setShowCellarList] = useState(false); // 내 셀러 리스트(메뉴판 뷰)
   const [pairOnlyStock, setPairOnlyStock] = useState(false);   // 페어링: 보유 병에서만(소믈리에)
+  const detailCacheRef = useRef({}); // 이름별 detail 응답 캐시 — 저장 반복 시 재조회 방지
   const [pairingLoading, setPairingLoading] = useState(null);
   const [foodText, setFoodText] = useState("");
   const [foodResult, setFoodResult] = useState(null);
@@ -1602,20 +1606,24 @@ function App() {
   // 메뉴판 결과의 한 항목을 위시리스트/셀러로 저장
   async function saveMenuItem(item, status) {
     // 상세를 안 열어봤으면 저장 전에 자동으로 불러와 함께 저장(실패해도 저장은 진행)
-    let d = menuDetail[item.name] && !menuDetail[item.name].error ? menuDetail[item.name] : null;
+    let d = menuDetail[item.name] && !menuDetail[item.name].error ? menuDetail[item.name]
+      : detailCacheRef.current[item.name] || null;
     if (!d) {
       showToast("상세 분석 중…", "loading");
       try {
         const r = await api({ action: "detail", name: item.name, kind: item.kind });
-        d = r;
-        setMenuDetail((p) => ({ ...p, [item.name]: { ...r, _open: p[item.name] ? p[item.name]._open : false } }));
+        d = r && !r.error ? r : null;
+        if (d) {
+          detailCacheRef.current[item.name] = d;
+          setMenuDetail((p) => ({ ...p, [item.name]: { ...d, _open: p[item.name] ? p[item.name]._open : false } }));
+        }
       } catch (e) { d = null; }
     }
     const entry = {
       id: Date.now() + Math.floor(Math.random() * 1000),
       date: kstNow(),
       name: item.name, kind: item.kind,
-      resembles: (d && d.resembles) || item.why || "",
+      resembles: safeStr((d && d.resembles) || item.why || ""),
       predictedScore: item.predictedScore ?? null,
       reason: (d && d.reason) || item.why || "",
       myScore: null, image: "",
@@ -1646,18 +1654,22 @@ function App() {
         if (up && up.ok && up.url) imageUrl = up.url;
       } catch (e) { /* 사진 실패해도 기록은 저장 */ }
     }
-    // 상세도 자동 조회해 함께 저장(실패해도 저장은 진행)
-    let det = null;
-    showToast("상세 분석 중…", "loading");
-    try {
-      det = await api({ action: "detail", name: result.name, kind: result.kind });
-    } catch (e) { det = null; }
+    // 상세도 자동 조회해 함께 저장(실패해도 저장은 진행). 같은 이름은 캐시 재사용.
+    let det = detailCacheRef.current[result.name] || null;
+    if (!det) {
+      showToast("상세 분석 중…", "loading");
+      try {
+        det = await api({ action: "detail", name: result.name, kind: result.kind });
+        if (det && !det.error) detailCacheRef.current[result.name] = det;
+        else det = null;
+      } catch (e) { det = null; }
+    }
     const entry = {
       id: Date.now(),
       date: kstNow(),
       name: result.name,
       kind: result.kind,
-      resembles: result.resembles,
+      resembles: safeStr(result.resembles),
       // "다 같이" 분석은 평가자 평균을 예측 점수로 저장(상단 표시와 일치). 아니면 개별 예측치.
       predictedScore: (commonAvg != null ? commonAvg : result.predictedScore),
       reason: result.reason,
@@ -1683,13 +1695,17 @@ function App() {
   // 추천 술을 셀러/위시리스트로 저장
   async function saveFromRec(rec, myScore, status) {
     // 상세를 안 열어봤으면 저장 전에 자동으로 불러와 함께 저장(실패해도 저장은 진행)
-    let d = recDetail[rec.name] && !recDetail[rec.name].error ? recDetail[rec.name] : null;
+    let d = recDetail[rec.name] && !recDetail[rec.name].error ? recDetail[rec.name]
+      : detailCacheRef.current[rec.name] || null;
     if (!d) {
       showToast("상세 분석 중…", "loading");
       try {
         const r = await api({ action: "detail", name: rec.name, kind: rec.kind });
-        d = r;
-        setRecDetail((p) => ({ ...p, [rec.name]: { ...r, _open: p[rec.name] ? p[rec.name]._open : false } }));
+        d = r && !r.error ? r : {};
+        if (d && d.profile) {
+          detailCacheRef.current[rec.name] = d;
+          setRecDetail((p) => ({ ...p, [rec.name]: { ...d, _open: p[rec.name] ? p[rec.name]._open : false } }));
+        }
       } catch (e) { d = {}; }
     }
     const entry = {
@@ -1697,7 +1713,7 @@ function App() {
       date: kstNow(),
       name: rec.name,
       kind: rec.kind,
-      resembles: rec.why || "",
+      resembles: safeStr(rec.why || ""),
       predictedScore: rec.predictedScore ?? d.predictedScore ?? null,
       reason: d.profile || rec.why || "",
       myScore: myScore ?? null,
@@ -1816,15 +1832,20 @@ function App() {
 
   async function runFoodPairing() {
     if (!foodText.trim()) { showToast("음식을 입력해 주세요", "error"); return; }
+    // 소믈리에 모드인데 보유 병이 없으면 호출 전에 안내
+    if (pairOnlyStock && !entries.some((en) => (Number(en.stock) || 0) > 0)) {
+      showToast("보유 중인 병이 없어요 — 셀러에서 재고를 입고(+)해 주세요", "error");
+      return;
+    }
     setFoodLoading(true);
     setFoodResult(null);
     try {
       const r = await api({ action: "pairFood", food: foodText.trim(), onlyStock: pairOnlyStock });
-      if (r.error) throw new Error(r.error);
+      if (!r || r.error) throw new Error((r && r.error) || "빈 응답");
       setFoodResult(r);
       setFoodWishDone({});
     } catch (e) {
-      showToast("페어링 추천에 실패했어요", "error");
+      showToast(String(e && e.message ? e.message : "페어링 추천에 실패했어요"), "error");
     } finally {
       setFoodLoading(false);
     }
@@ -3036,7 +3057,7 @@ function App() {
                   </div>
                 </div>
                 <div style={{ marginTop: 14, fontSize: 13, color: C.sub, lineHeight: 1.5 }}>
-                  <b style={{ color: C.gold }}>닮은 것</b> · {result.resembles}
+                  <b style={{ color: C.gold }}>닮은 것</b> · {safeStr(result.resembles)}
                 </div>
                 {result.info && (() => {
                   const inf = result.info;
@@ -3813,7 +3834,7 @@ function App() {
             </div>
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 6 }}>
-                조건이 있으면 적어 주세요 <span style={{ color: C.sub }}>(선택 · 예: 이탈리아 와인, 5만원대 위스키)</span>
+                조건이 있으면 적어 주세요 <span style={{ color: C.sub }}>(선택)</span>
               </div>
               <input value={recCondition} onChange={(e) => setRecCondition(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && loadRecs()}
