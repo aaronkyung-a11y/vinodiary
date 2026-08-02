@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.22";
+const APP_VERSION = "v1.23";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -395,6 +395,8 @@ function App() {
   const [ratingFor, setRatingFor] = useState({}); // {entryId: "친구이름"} 평가자 선택
   const [axesLoading, setAxesLoading] = useState(null);
   const [priceFillProg, setPriceFillProg] = useState(null); // {done,total} 가격 일괄 채우기 진행
+  const [showCellarList, setShowCellarList] = useState(false); // 내 셀러 리스트(메뉴판 뷰)
+  const [pairOnlyStock, setPairOnlyStock] = useState(false);   // 페어링: 보유 병에서만(소믈리에)
   const [pairingLoading, setPairingLoading] = useState(null);
   const [foodText, setFoodText] = useState("");
   const [foodResult, setFoodResult] = useState(null);
@@ -1720,6 +1722,15 @@ function App() {
   }
 
   // 기존 기록의 특성 막대를 생성(detail 호출 → axes 추출 → 시트 저장)
+  // 실물 셀러 재고 입출고: 낙관적 반영 후 백엔드 저장(실패 토스트)
+  function adjustStock(e, delta) {
+    const next = Math.max(0, (Number(e.stock) || 0) + delta);
+    upsertLocal({ ...e, stock: next });
+    api({ action: "setStock", id: e.id, stock: next }).then((r) => {
+      if (r && r.error) throw new Error(r.error);
+    }).catch(() => showToast("재고 저장 실패 — 네트워크 확인", "error"));
+  }
+
   // 가격 없는 기록을 순차로 추정해 채움 (백엔드 estimatePrice + setInfo)
   async function fillPrices() {
     const targets = entries.filter((e) => !(e.info && e.info.price));
@@ -1808,7 +1819,7 @@ function App() {
     setFoodLoading(true);
     setFoodResult(null);
     try {
-      const r = await api({ action: "pairFood", food: foodText.trim() });
+      const r = await api({ action: "pairFood", food: foodText.trim(), onlyStock: pairOnlyStock });
       if (r.error) throw new Error(r.error);
       setFoodResult(r);
       setFoodWishDone({});
@@ -3174,6 +3185,14 @@ function App() {
                 </button>
               ) : null;
             })()}
+            {entries.some((e) => (Number(e.stock) || 0) > 0) && (
+              <button onClick={() => setShowCellarList(true)}
+                style={{ width: "100%", padding: "11px", marginBottom: 12, background: "transparent",
+                  color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 10, fontSize: 13,
+                  cursor: "pointer" }}>
+                📜 내 셀러 리스트 (보유 {entries.filter((e) => (Number(e.stock) || 0) > 0).length}종)
+              </button>
+            )}
             {(() => {
               const missing = entries.filter((e) => !(e.info && e.info.price)).length;
               if (!missing) return null;
@@ -3225,9 +3244,10 @@ function App() {
             )}
             {entries.length > 0 && (
               <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-                {[["all", "전체"], ["wine", "와인"], ["whisky", "위스키"], ["wishlist", "위시리스트"]].map(([k, label]) => {
-                  const isWish = k === "wishlist";
-                  const count = isWish ? entries.filter((e) => e.status === "wishlist").length : 0;
+                {[["all", "전체"], ["wine", "와인"], ["whisky", "위스키"], ["stock", "보유 중"], ["wishlist", "위시리스트"]].map(([k, label]) => {
+                  const isWish = k === "wishlist" || k === "stock";
+                  const count = k === "wishlist" ? entries.filter((e) => e.status === "wishlist").length
+                    : k === "stock" ? entries.filter((e) => (Number(e.stock) || 0) > 0).length : 0;
                   return (
                   <button key={k} onClick={() => {
                     setKindFilter(k);
@@ -3235,7 +3255,7 @@ function App() {
                       setSortBy("recent");
                     }
                   }}
-                    style={{ flex: isWish ? "1 0 100%" : 1, padding: "8px 0", fontSize: 13,
+                    style={{ flex: isWish ? "1 0 48%" : 1, padding: "8px 0", fontSize: 13,
                       background: kindFilter === k ? C.gold : C.panel,
                       color: kindFilter === k ? "#1B160C" : C.sub,
                       border: `1px solid ${kindFilter === k ? C.gold : C.line}`,
@@ -3250,6 +3270,8 @@ function App() {
               .filter((e) => {
                 if (kindFilter === "wishlist") {
                   if (e.status !== "wishlist") return false;
+                } else if (kindFilter === "stock") {
+                  if (!((Number(e.stock) || 0) > 0)) return false;
                 } else {
                   if (e.status === "wishlist") return false;
                   if (!(kindFilter === "all" || e.kind === kindFilter)) return false;
@@ -3307,7 +3329,7 @@ function App() {
                       <span style={{ width: 7, height: 7, borderRadius: "50%",
                         background: e.kind === "whisky" ? C.whisky : C.wine }} />
                       <span style={{ fontSize: 10, color: C.sub, letterSpacing: 1 }}>
-                        {e.kind === "whisky" ? "WHISKY" : "WINE"}{isWish ? " · 위시리스트" : ""}{e.image ? " · 📷" : ""} · {e.date}
+                        {e.kind === "whisky" ? "WHISKY" : "WINE"}{isWish ? " · 위시리스트" : ""}{(Number(e.stock) || 0) > 0 ? ` · 🍾 보유 ${e.stock}병` : ""}{e.image ? " · 📷" : ""} · {e.date}
                         {isWish && isOldWish(e) && (
                           <span style={{ color: C.goldDim, marginLeft: 4 }}>· ⏳ 오래됨</span>
                         )}
@@ -3370,6 +3392,21 @@ function App() {
                     })()}
                     {/* 지도는 info 유무와 무관하게 이름·지역으로 판정(판정 실패 시 스스로 안 나옴) */}
                     <RegionMap info={e.info} name={e.name} />
+                    {/* 실물 셀러 재고 입출고 */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
+                      background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 10, padding: "8px 12px" }}>
+                      <span style={{ color: C.goldDim, fontSize: 11, letterSpacing: 1, flex: 1 }}>🍾 실물 셀러 재고</span>
+                      <button onClick={() => adjustStock(e, -1)} disabled={!(Number(e.stock) || 0)}
+                        style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${C.line}`,
+                          background: "transparent", color: C.text, fontSize: 16, cursor: "pointer",
+                          opacity: (Number(e.stock) || 0) ? 1 : 0.35 }}>−</button>
+                      <span style={{ color: C.text, fontSize: 14, fontWeight: 700, minWidth: 34, textAlign: "center" }}>
+                        {Number(e.stock) || 0}병
+                      </span>
+                      <button onClick={() => adjustStock(e, 1)}
+                        style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${C.goldDim}`,
+                          background: "transparent", color: C.gold, fontSize: 16, cursor: "pointer" }}>+</button>
+                    </div>
                     {e.reason && (
                       <div style={{ marginBottom: 8 }}>
                         <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>분석 근거</span>
@@ -3668,6 +3705,15 @@ function App() {
               <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 8 }}>
                 🍽 오늘 뭐 먹어요? 어울리는 술을 찾아드려요
               </div>
+              {entries.some((en) => (Number(en.stock) || 0) > 0) && (
+                <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8,
+                  fontSize: 12, color: pairOnlyStock ? C.gold : C.sub, cursor: "pointer" }}>
+                  <input type="checkbox" checked={pairOnlyStock}
+                    onChange={(ev) => setPairOnlyStock(ev.target.checked)}
+                    style={{ accentColor: C.gold }} />
+                  🍾 보유 병에서만 골라줘 (내 셀러 소믈리에)
+                </label>
+              )}
               <div style={{ display: "flex", gap: 8 }}>
                 <input value={foodText} onChange={(e) => setFoodText(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && runFoodPairing()}
@@ -3686,16 +3732,26 @@ function App() {
                   {foodResult.fromCellar && foodResult.fromCellar.length > 0 && (
                     <div style={{ marginBottom: 10 }}>
                       <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>내 셀러에서</span>
-                      {foodResult.fromCellar.map((p, i) => (
+                      {foodResult.fromCellar.map((p, i) => {
+                        const mEn = entries.find((en) => (en.name || "").trim().toLowerCase() === (p.name || "").trim().toLowerCase());
+                        const st = mEn ? (Number(mEn.stock) || 0) : 0;
+                        return (
                         <div key={i} style={{ marginTop: 4 }}>
                           {p.score != null && (
                             <span style={{ color: C.gold, fontWeight: 700, marginRight: 6,
                               fontFamily: "Georgia, serif" }}>{p.score}</span>
                           )}
                           <span style={{ color: C.text, fontWeight: 600 }}>{p.name}</span>
+                          {st > 0 && <span style={{ color: C.goldDim, fontSize: 11 }}> · 🍾 {st}병</span>}
                           <span style={{ color: C.sub }}> — {p.why}</span>
+                          {p.serving && (
+                            <div style={{ color: C.goldDim, fontSize: 11, marginTop: 1, marginLeft: 2 }}>
+                              ↳ {p.serving}
+                            </div>
+                          )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                   {foodResult.suggestions && foodResult.suggestions.length > 0 && (
@@ -4561,6 +4617,61 @@ function App() {
               fontSize: 13, cursor: "pointer", padding: "2px 6px" }}>되돌리기</button>
         </div>
       )}
+      {/* 내 셀러 리스트 — 보유 병을 메뉴판 스타일로 */}
+      {showCellarList && (() => {
+        const held = entries.filter((en) => (Number(en.stock) || 0) > 0);
+        const wines = held.filter((en) => en.kind !== "whisky");
+        const whiskies = held.filter((en) => en.kind === "whisky");
+        const line = (en) => (
+          <div key={en.id} style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: "Georgia, serif", fontSize: 15, color: C.text }}>
+                {en.name}
+                <span style={{ color: C.goldDim, fontSize: 12, marginLeft: 6 }}>×{en.stock}</span>
+              </div>
+              {en.nameKo && en.nameKo !== en.name && (
+                <div style={{ fontSize: 11, color: C.sub }}>{en.nameKo}</div>
+              )}
+            </div>
+            {priceLabel(en.info) && (
+              <div style={{ color: C.goldDim, fontSize: 12, whiteSpace: "nowrap" }}>{priceLabel(en.info)}</div>
+            )}
+          </div>
+        );
+        const sec = (title, list) => list.length ? (
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ color: C.gold, fontSize: 12, letterSpacing: 3, marginBottom: 10,
+              borderBottom: `1px solid ${C.goldDim}`, paddingBottom: 6 }}>{title}</div>
+            {list.slice().sort((a, b) => (a.subtype || "").localeCompare(b.subtype || "") ||
+              (a.name || "").localeCompare(b.name || "")).map(line)}
+          </div>
+        ) : null;
+        return (
+          <div onClick={() => setShowCellarList(false)}
+            style={{ position: "fixed", inset: 0, background: "rgba(10,8,4,0.92)", zIndex: 90,
+              overflowY: "auto", padding: "30px 22px 60px" }}>
+            <div onClick={(ev) => ev.stopPropagation()}
+              style={{ maxWidth: 420, margin: "0 auto", background: C.panel,
+                border: `1px solid ${C.goldDim}`, borderRadius: 16, padding: "26px 22px" }}>
+              <div style={{ textAlign: "center", marginBottom: 20 }}>
+                <div style={{ fontFamily: "Georgia, serif", fontSize: 19, color: C.gold, letterSpacing: 4 }}>
+                  CELLAR LIST
+                </div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>
+                  {myLabel} · {held.length}종 {held.reduce((t, en) => t + (Number(en.stock) || 0), 0)}병 · 가격은 추정 포함
+                </div>
+              </div>
+              {sec("WINE", wines)}
+              {sec("WHISKY", whiskies)}
+              <button onClick={() => setShowCellarList(false)}
+                style={{ width: "100%", padding: "11px", marginTop: 6, background: "transparent",
+                  color: C.sub, border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 13, cursor: "pointer" }}>
+                닫기
+              </button>
+            </div>
+          </div>
+        );
+      })()}
       {toast && !pendingDelete && (
         <div style={{ position: "fixed", left: "50%", bottom: 78, transform: "translateX(-50%)",
           zIndex: 50, background: toast.kind === "error" ? "#5A2530" : C.panel2,
