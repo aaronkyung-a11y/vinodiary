@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.25";
+const APP_VERSION = "v1.27";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -401,6 +401,8 @@ function App() {
   const [showCellarList, setShowCellarList] = useState(false); // 내 셀러 리스트(메뉴판 뷰)
   const [pairOnlyStock, setPairOnlyStock] = useState(false);   // 페어링: 보유 병에서만(소믈리에)
   const detailCacheRef = useRef({}); // 이름별 detail 응답 캐시 — 저장 반복 시 재조회 방지
+  const [stockOnSave, setStockOnSave] = useState(0); // 분석 저장 시 실물 셀러 입고 병 수
+  const [resultSaved, setResultSaved] = useState(null); // {status} 저장 완료 후에도 결과 화면 유지
   const [pairingLoading, setPairingLoading] = useState(null);
   const [foodText, setFoodText] = useState("");
   const [foodResult, setFoodResult] = useState(null);
@@ -1488,6 +1490,8 @@ function App() {
     setError(null);
     setAnalyzing(true);
     setResult(null);
+    setResultSaved(null);
+    setStockOnSave(0);
     setCellarMatch(null);
     setCandidates(null);
     setRaterScores(null);
@@ -1683,13 +1687,14 @@ function App() {
       info: result.info || (det && det.info) || null,
       infoUncertain: result.infoUncertain || false,
       detail: pickDetail(det),
+      stock: Number(stockOnSave) || 0,
       companions: companions.trim(),
       note: note.trim(),
     };
     await savingApi({ action: "save", entry }, status === "wishlist" ? "위시리스트에 담음" : "저장됨");
-    setResult(null); setText(""); setImageData(null); setImagePreview(null);
-    setCompanions(""); setNote("");
     upsertLocal(entry);
+    // 결과 화면 유지 — 저장 후에도 계속 볼 수 있게. 새 분석 시작 시 리셋됨.
+    setResultSaved({ status: entry.status, stock: entry.stock });
   }
 
   // 추천 술을 셀러/위시리스트로 저장
@@ -3154,6 +3159,43 @@ function App() {
                     rows={2} style={{ width: "100%", boxSizing: "border-box", background: C.panel2,
                       border: `1px solid ${C.line}`, borderRadius: 8, color: C.text,
                       padding: "9px 12px", fontSize: 13, marginBottom: 12, resize: "vertical" }} />
+                  {resultSaved ? (
+                    <div>
+                      <div style={{ padding: "12px 14px", background: C.panel2,
+                        border: `1px solid ${C.goldDim}`, borderRadius: 10, marginBottom: 10,
+                        fontSize: 13, color: C.gold }}>
+                        ✓ {resultSaved.status === "wishlist" ? "위시리스트에 담김" : "셀러에 저장됨"}
+                        {(Number(resultSaved.stock) || 0) > 0 ? ` · 🍾 ${resultSaved.stock}병 입고됨` : ""}
+                        <div style={{ color: C.sub, fontSize: 11, marginTop: 3 }}>
+                          결과는 계속 볼 수 있어요. 수정은 셀러 탭에서.
+                        </div>
+                      </div>
+                      <button onClick={() => { setResult(null); setResultSaved(null); setText("");
+                        setImageData(null); setImagePreview(null); setCompanions(""); setNote(""); setStockOnSave(0); }}
+                        style={{ width: "100%", padding: 11, background: "transparent",
+                          color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8,
+                          fontSize: 13, cursor: "pointer" }}>
+                        새 분석 시작
+                      </button>
+                    </div>
+                  ) : (
+                  <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
+                    background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 10, padding: "8px 12px" }}>
+                    <span style={{ color: (Number(stockOnSave) || 0) > 0 ? C.gold : C.goldDim,
+                      fontSize: 11, letterSpacing: 1, flex: 1 }}>🍾 실물 셀러 입고</span>
+                    <button onClick={() => setStockOnSave((n) => Math.max(0, (Number(n) || 0) - 1))}
+                      disabled={!(Number(stockOnSave) || 0)}
+                      style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${C.line}`,
+                        background: "transparent", color: C.text, fontSize: 16, cursor: "pointer",
+                        opacity: (Number(stockOnSave) || 0) ? 1 : 0.35 }}>−</button>
+                    <span style={{ color: C.text, fontSize: 14, fontWeight: 700, minWidth: 34, textAlign: "center" }}>
+                      {Number(stockOnSave) || 0}병
+                    </span>
+                    <button onClick={() => setStockOnSave((n) => (Number(n) || 0) + 1)}
+                      style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${C.goldDim}`,
+                        background: "transparent", color: C.gold, fontSize: 16, cursor: "pointer" }}>+</button>
+                  </div>
                   <div style={{ fontSize: 12, color: C.sub, marginBottom: 8 }}>
                     이미 마셔봤다면 점수를 입력하세요
                   </div>
@@ -3172,6 +3214,8 @@ function App() {
                       ✧ 위시리스트로
                     </button>
                   </div>
+                  </div>
+                  )}
                 </div>
               </div>
             )}
