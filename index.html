@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.27";
+const APP_VERSION = "v1.28";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -1467,8 +1467,11 @@ function App() {
     setCandidates(null);
     try {
       const r = await api({ action: "analyzeCandidates", text, imageData });
-      if (r.error) throw new Error(r.error);
+      if (!r || r.error) throw new Error((r && r.error) || "빈 응답");
       const list = (r.candidates || []).filter((c) => c && c.name);
+      if (r.truncated && list.length) {
+        showToast("후보가 많아 일부만 표시해요", "done");
+      }
       if (list.length === 0) {
         setError("후보를 찾지 못했어요. 이름을 더 구체적으로 적어 보세요.");
       } else if (list.length === 1) {
@@ -1478,7 +1481,7 @@ function App() {
         setCandidates(list);
       }
     } catch (e) {
-      setError("분석에 실패했어요. 다시 시도해 주세요.");
+      setError(String(e && e.message ? e.message : "분석에 실패했어요. 다시 시도해 주세요."));
       console.error(e);
     } finally {
       setCandLoading(false);
@@ -1542,7 +1545,7 @@ function App() {
         }
       }
     } catch (e) {
-      setError("분석에 실패했어요. 다시 시도해 주세요.");
+      setError(String(e && e.message ? e.message : "분석에 실패했어요. 다시 시도해 주세요."));
       console.error(e);
     } finally {
       setAnalyzing(false);
