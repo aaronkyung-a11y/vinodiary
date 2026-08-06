@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.32";
+const APP_VERSION = "v1.33";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -1752,8 +1752,10 @@ function App() {
         if (up && up.ok && up.url) imageUrl = up.url;
       } catch (e) { /* 사진 실패해도 기록은 저장 */ }
     }
-    // 상세도 자동 조회해 함께 저장(실패해도 저장은 진행). 같은 이름은 캐시 재사용.
-    let det = detailCacheRef.current[result.name] || null;
+    // v1.33: analyze가 상세(profile/forYou/pairing/serving)까지 한 번에 반환 —
+    // 이미 있으면 detail을 다시 부르지 않는다(중복 호출·표현 불일치 제거).
+    let det = (result.profile || result.forYou || result.pairing || result.serving)
+      ? result : (detailCacheRef.current[result.name] || null);
     if (!det) {
       showToast("상세 분석 중…", "loading");
       try {
@@ -3258,6 +3260,43 @@ function App() {
                     <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>
                       ? = 평가 기록이 적어 신뢰도 낮음
                     </div>
+                  </div>
+                )}
+                {/* 상세(프로파일·당신에게·페어링·서빙) — analyze 응답에 함께 온다 */}
+                {(result.profile || result.forYou || result.pairing || result.serving) && (
+                  <div style={{ marginTop: 14 }}>
+                    {result.profile && (
+                      <div style={{ marginBottom: 10 }}>
+                        <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>프로파일</span>
+                        <div style={{ color: C.text, marginTop: 3, fontSize: 13, lineHeight: 1.7 }}>
+                          {safeStr(result.profile)}
+                        </div>
+                      </div>
+                    )}
+                    {result.forYou && (
+                      <div style={{ marginBottom: 10 }}>
+                        <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>당신에게</span>
+                        <div style={{ color: C.text, marginTop: 3, fontSize: 13, lineHeight: 1.7 }}>
+                          {safeStr(result.forYou)}
+                        </div>
+                      </div>
+                    )}
+                    {result.pairing && (
+                      <div style={{ marginBottom: 10 }}>
+                        <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>🍽 페어링</span>
+                        <div style={{ color: C.text, marginTop: 3, fontSize: 13, lineHeight: 1.6 }}>
+                          {safeStr(result.pairing)}
+                        </div>
+                      </div>
+                    )}
+                    {result.serving && (
+                      <div style={{ marginBottom: 4 }}>
+                        <span style={{ color: C.gold, fontSize: 11, letterSpacing: 1 }}>서빙 팁</span>
+                        <div style={{ color: C.text, marginTop: 3, fontSize: 13, lineHeight: 1.6 }}>
+                          {safeStr(result.serving)}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 {result.axes && (
