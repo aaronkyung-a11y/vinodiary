@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.31";
+const APP_VERSION = "v1.32";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -400,6 +400,7 @@ function App() {
   const [priceFillProg, setPriceFillProg] = useState(null); // {done,total} 가격 일괄 채우기 진행
   const [showCellarList, setShowCellarList] = useState(false); // 내 셀러 리스트(메뉴판 뷰)
   const [listPair, setListPair] = useState({}); // 셀러 리스트: id별 {loading,data,open} 페어링
+  const recentPickRef = useRef([]); // 소믈리에가 최근 추천한 병 이름(반복 추천 억제용)
   const [pairOnlyStock, setPairOnlyStock] = useState(false);   // 페어링: 보유 병에서만(소믈리에)
   const detailCacheRef = useRef({}); // 이름별 detail 응답 캐시 — 저장 반복 시 재조회 방지
   const [stockOnSave, setStockOnSave] = useState(0); // 분석 저장 시 실물 셀러 입고 병 수
@@ -1956,10 +1957,17 @@ function App() {
     setFoodLoading(true);
     setFoodResult(null);
     try {
-      const r = await api({ action: "pairFood", food: foodText.trim(), onlyStock: pairOnlyStock });
+      const r = await api({ action: "pairFood", food: foodText.trim(), onlyStock: pairOnlyStock,
+        recent: pairOnlyStock ? recentPickRef.current.slice(0, 6) : [] });
       if (!r || r.error) throw new Error((r && r.error) || "빈 응답");
       setFoodResult(r);
       setFoodWishDone({});
+      // 방금 추천된 병을 기억 — 다음 조회에서 가급적 다른 병이 나오도록
+      if (pairOnlyStock && r.fromCellar && r.fromCellar.length) {
+        const picked = r.fromCellar.map((x) => safeStr(x.name)).filter(Boolean);
+        recentPickRef.current = picked.concat(
+          recentPickRef.current.filter((n) => picked.indexOf(n) < 0)).slice(0, 6);
+      }
     } catch (e) {
       showToast(String(e && e.message ? e.message : "페어링 추천에 실패했어요"), "error");
     } finally {
