@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.28";
+const APP_VERSION = "v1.31";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -399,6 +399,7 @@ function App() {
   const [axesLoading, setAxesLoading] = useState(null);
   const [priceFillProg, setPriceFillProg] = useState(null); // {done,total} 가격 일괄 채우기 진행
   const [showCellarList, setShowCellarList] = useState(false); // 내 셀러 리스트(메뉴판 뷰)
+  const [listPair, setListPair] = useState({}); // 셀러 리스트: id별 {loading,data,open} 페어링
   const [pairOnlyStock, setPairOnlyStock] = useState(false);   // 페어링: 보유 병에서만(소믈리에)
   const detailCacheRef = useRef({}); // 이름별 detail 응답 캐시 — 저장 반복 시 재조회 방지
   const [stockOnSave, setStockOnSave] = useState(0); // 분석 저장 시 실물 셀러 입고 병 수
@@ -1602,6 +1603,95 @@ function App() {
     return p + (inf.priceEst === false ? "" : " (추정)");
   }
 
+  // 한글 검색어 → 영문 별칭. 품종·지역·스타일이 영문으로 저장돼 있어 한글로는 안 잡히던 문제 대응.
+  // 주의: 부분 문자열이 아니라 '검색어 토큰 정확 일치'일 때만 확장한다
+  // (과거 substring 충돌 사례: "salon"이 Menetou-Salon을, "roa"가 Laphroaig를 잡던 버그).
+  const KO_ALIAS = {
+    // 화이트 품종
+    "샤르도네": ["chardonnay"], "소비뇽블랑": ["sauvignon blanc"], "소비뇽": ["sauvignon"],
+    "리슬링": ["riesling"], "슈냉블랑": ["chenin"], "슈냉": ["chenin"],
+    "게뷔르츠트라미너": ["gewurztraminer", "gewürztraminer"], "피노그리": ["pinot gris", "pinot grigio"],
+    "피노그리지오": ["pinot grigio"], "비오니에": ["viognier"], "세미용": ["semillon", "sémillon"],
+    "알바리뇨": ["albarino", "albariño"], "그뤼너": ["gruner", "grüner"], "베르멘티노": ["vermentino"],
+    "뮈스카데": ["muscadet", "melon de bourgogne"], "가르가네가": ["garganega"], "코르테제": ["cortese"],
+    "피아노": ["fiano"], "그레코": ["greco"], "말바지아": ["malvasia"], "트레비아노": ["trebbiano"],
+    "실바너": ["silvaner", "sylvaner"], "아씨르티코": ["assyrtiko"], "푸르민트": ["furmint"],
+    // 레드 품종
+    "피노누아": ["pinot noir"], "피노": ["pinot"], "카베르네": ["cabernet"],
+    "까베르네": ["cabernet"], "카베르네소비뇽": ["cabernet sauvignon"], "카베르네프랑": ["cabernet franc"],
+    "메를로": ["merlot"], "메를롯": ["merlot"], "시라": ["syrah"], "쉬라즈": ["shiraz"],
+    "그르나슈": ["grenache", "garnacha"], "무르베드르": ["mourvedre", "mourvèdre", "monastrell"],
+    "산지오베제": ["sangiovese"], "산지오베세": ["sangiovese"], "네비올로": ["nebbiolo"],
+    "바르베라": ["barbera"], "돌체토": ["dolcetto"], "코르비나": ["corvina"],
+    "몬테풀치아노": ["montepulciano"], "알리아니코": ["aglianico"], "프리미티보": ["primitivo"],
+    "네그로아마로": ["negroamaro"], "네렐로": ["nerello"], "템프라니요": ["tempranillo"],
+    "템프라니오": ["tempranillo"], "가르나차": ["garnacha"], "말벡": ["malbec"],
+    "카르메네르": ["carmenere", "carménère"], "진판델": ["zinfandel"], "피노타지": ["pinotage"],
+    "가메": ["gamay"], "무니에": ["meunier"], "쁘띠베르도": ["petit verdot"], "타나": ["tannat"],
+    "츠바이겔트": ["zweigelt"], "블라우프렌키슈": ["blaufrankisch", "blaufränkisch"],
+    // 프랑스 지역
+    "부르고뉴": ["bourgogne", "burgundy"], "버건디": ["burgundy", "bourgogne"],
+    "보르도": ["bordeaux"], "샴페인": ["champagne"], "샹파뉴": ["champagne"],
+    "론": ["rhone", "rhône"], "루아르": ["loire"], "알자스": ["alsace"],
+    "프로방스": ["provence"], "랑그독": ["languedoc"], "보졸레": ["beaujolais"],
+    "샤블리": ["chablis"], "뫼르소": ["meursault"], "볼네": ["volnay"], "본로마네": ["vosne-romanee", "vosne"],
+    "쥬브레샹베르탱": ["gevrey"], "샹볼": ["chambolle"], "뉘생조르주": ["nuits-saint-georges", "nuits"],
+    "포므롤": ["pomerol"], "생테밀리옹": ["saint-emilion", "st-emilion"], "메독": ["medoc", "médoc"],
+    "포이약": ["pauillac"], "마고": ["margaux"], "생줄리앙": ["saint-julien"], "소테른": ["sauternes"],
+    "상세르": ["sancerre"], "부브레": ["vouvray"], "에르미타주": ["hermitage"], "코트로티": ["cote-rotie", "côte-rôtie"],
+    "샤토네프": ["chateauneuf", "châteauneuf"], "쥐라": ["jura"], "사부아": ["savoie"],
+    // 이탈리아·스페인·기타 지역
+    "이탈리아": ["italy", "italia"], "토스카나": ["tuscany", "toscana"], "피에몬테": ["piedmont", "piemonte"],
+    "바롤로": ["barolo"], "바르바레스코": ["barbaresco"], "키안티": ["chianti"],
+    "몬탈치노": ["montalcino"], "브루넬로": ["brunello"], "베네토": ["veneto"],
+    "아마로네": ["amarone"], "프로세코": ["prosecco"], "프란치아코르타": ["franciacorta"],
+    "에트나": ["etna"], "시칠리아": ["sicily", "sicilia"], "풀리아": ["puglia", "apulia"],
+    "스페인": ["spain", "españa"], "리오하": ["rioja"], "리베라": ["ribera"],
+    "프리오랏": ["priorat"], "카바": ["cava"], "헤레스": ["jerez", "sherry"], "셰리": ["sherry", "jerez"],
+    "포르투갈": ["portugal"], "포트": ["port", "porto"], "도루": ["douro"],
+    "독일": ["germany", "deutschland"], "모젤": ["mosel"], "라인가우": ["rheingau"],
+    "오스트리아": ["austria"], "미국": ["usa", "california", "united states"],
+    "캘리포니아": ["california"], "나파": ["napa"], "소노마": ["sonoma"], "오리건": ["oregon"],
+    "칠레": ["chile"], "아르헨티나": ["argentina"], "멘도사": ["mendoza"],
+    "호주": ["australia"], "뉴질랜드": ["new zealand"], "말보로": ["marlborough"],
+    "남아공": ["south africa"], "그리스": ["greece"], "헝가리": ["hungary"], "토카이": ["tokaj"],
+    // 위스키 지역·캐스크·스타일
+    "스코틀랜드": ["scotland", "scotch"], "스카치": ["scotch"], "아일라": ["islay"],
+    "아일러": ["islay"], "스페이사이드": ["speyside"], "하이랜드": ["highland"],
+    "로우랜드": ["lowland"], "캠벨타운": ["campbeltown"], "아일랜드": ["ireland", "irish"],
+    "일본": ["japan", "japanese"], "버번": ["bourbon"], "라이": ["rye"],
+    "셰리캐스크": ["sherry cask", "sherry"], "버번캐스크": ["bourbon cask", "bourbon"],
+    "포트캐스크": ["port cask"], "피트": ["peat", "peated"], "논피트": ["unpeated"],
+    "싱글몰트": ["single malt"], "블렌디드": ["blended"],
+    // 스타일
+    "스파클링": ["sparkling", "champagne", "cava", "prosecco"], "레드": ["red"], "화이트": ["white"],
+    "로제": ["rose", "rosé"], "오렌지": ["orange"], "내추럴": ["natural"],
+    "브뤼": ["brut"], "엑스트라브뤼": ["extra brut"], "블랑드블랑": ["blanc de blancs"],
+    "블랑드누아": ["blanc de noirs"], "그로워": ["grower"], "빈티지": ["vintage", "millesime"],
+  };
+  // 검색어 토큰 → [토큰, ...영문 별칭]. 정확 일치일 때만 확장(부분 일치 확장은 오탐 위험).
+  function expandToken(t) {
+    const key = t.replace(/\s+/g, "");
+    return KO_ALIAS[key] ? [t].concat(KO_ALIAS[key]) : [t];
+  }
+
+  // 검색 대상 문자열: 영문명·한글명·타입·품종·지역·닮은 것까지 (공백 제거본도 포함)
+  function searchHay(e) {
+    const inf = e.info || {};
+    const parts = [e.name, e.nameKo, e.subtype, e.resembles,
+      inf.grapes, inf.region, inf.cask, inf.caskRegion, e.note];
+    const base = parts.map((x) => safeStr(x)).filter(Boolean).join(" ").toLowerCase();
+    return base + " " + base.replace(/\s+/g, ""); // 띄어쓰기 무시 매칭용
+  }
+  function matchSearch(e, raw) {
+    const q = String(raw || "").trim().toLowerCase();
+    if (!q) return true;
+    const hay = searchHay(e);
+    // 공백으로 나눈 토큰 모두 포함(AND). 각 토큰은 한글→영문 별칭 중 하나만 맞아도 통과(OR).
+    return q.split(/\s+/).every((t) =>
+      expandToken(t).some((v) => hay.includes(v) || hay.includes(v.replace(/\s+/g, ""))));
+  }
+
   // detail 응답에서 저장용 상세 필드 구성(프로파일/당신에게/페어링/서빙 팁)
   function pickDetail(d) {
     if (!d || d.error) return null;
@@ -1822,6 +1912,24 @@ function App() {
   }
 
   // 셀러 술의 페어링 도출(detail의 pairing). 시트엔 저장 안 하고 화면 상태에만.
+  // 셀러 리스트에서 병 선택 → 식사·안주 추천 (한 번 받은 건 캐시)
+  async function loadListPairing(en) {
+    const cur = listPair[en.id];
+    if (cur && cur.data) { // 이미 받아온 건 열고 닫기만
+      setListPair((p) => ({ ...p, [en.id]: { ...cur, open: !cur.open } }));
+      return;
+    }
+    setListPair((p) => ({ ...p, [en.id]: { loading: true, open: true } }));
+    try {
+      const r = await api({ action: "pairingFor", name: en.name, kind: en.kind });
+      if (!r || r.error) throw new Error((r && r.error) || "빈 응답");
+      setListPair((p) => ({ ...p, [en.id]: { loading: false, open: true, data: r } }));
+    } catch (e) {
+      setListPair((p) => ({ ...p, [en.id]: { loading: false, open: false } }));
+      showToast(String(e && e.message ? e.message : "페어링 도출 실패"), "error");
+    }
+  }
+
   async function loadPairing(entry) {
     setPairingLoading(entry.id);
     try {
@@ -3344,12 +3452,8 @@ function App() {
                   if (e.status === "wishlist") return false;
                   if (!(kindFilter === "all" || e.kind === kindFilter)) return false;
                 }
-                // 검색: 이름 + 닮은 것, 대소문자·부분 매칭
-                if (search.trim()) {
-                  const q = search.trim().toLowerCase();
-                  const hay = ((e.name || "") + " " + (e.resembles || "")).toLowerCase();
-                  if (!hay.includes(q)) return false;
-                }
+                // 검색: 영문명·한글명·품종·지역 등 전 필드, 띄어쓰기 무시
+                if (search.trim() && !matchSearch(e, search)) return false;
                 return true;
               })
               .sort((a, b) => {
@@ -3698,9 +3802,7 @@ function App() {
                 if (kindFilter === "wishlist") { if (e.status !== "wishlist") return false; }
                 else { if (e.status === "wishlist") return false;
                   if (!(kindFilter === "all" || e.kind === kindFilter)) return false; }
-                const q = search.trim().toLowerCase();
-                const hay = ((e.name || "") + " " + (e.resembles || "")).toLowerCase();
-                return hay.includes(q);
+                return matchSearch(e, search);
               }).length === 0 && (
                 <div style={{ textAlign: "center", color: C.sub, padding: "30px 20px", fontSize: 13 }}>
                   "{search}"에 해당하는 술이 없어요.
@@ -4690,22 +4792,69 @@ function App() {
         const held = entries.filter((en) => (Number(en.stock) || 0) > 0);
         const wines = held.filter((en) => en.kind !== "whisky");
         const whiskies = held.filter((en) => en.kind === "whisky");
-        const line = (en) => (
-          <div key={en.id} style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontFamily: "Georgia, serif", fontSize: 15, color: C.text }}>
-                {en.name}
-                <span style={{ color: C.goldDim, fontSize: 12, marginLeft: 6 }}>×{en.stock}</span>
+        const line = (en) => {
+          const lp = listPair[en.id] || {};
+          const d = lp.data;
+          return (
+          <div key={en.id} style={{ marginBottom: 10 }}>
+            <div onClick={() => loadListPairing(en)}
+              style={{ display: "flex", alignItems: "baseline", gap: 8, cursor: "pointer" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: "Georgia, serif", fontSize: 15,
+                  color: lp.open ? C.gold : C.text }}>
+                  {en.name}
+                  <span style={{ color: C.goldDim, fontSize: 12, marginLeft: 6 }}>×{en.stock}</span>
+                </div>
+                {en.nameKo && en.nameKo !== en.name && (
+                  <div style={{ fontSize: 11, color: C.sub }}>{en.nameKo}</div>
+                )}
               </div>
-              {en.nameKo && en.nameKo !== en.name && (
-                <div style={{ fontSize: 11, color: C.sub }}>{en.nameKo}</div>
+              {priceLabel(en.info) && (
+                <div style={{ color: C.goldDim, fontSize: 12, whiteSpace: "nowrap" }}>{priceLabel(en.info)}</div>
               )}
+              <span style={{ color: C.goldDim, fontSize: 11 }}>
+                {lp.loading ? "…" : lp.open ? "▴" : "🍽"}
+              </span>
             </div>
-            {priceLabel(en.info) && (
-              <div style={{ color: C.goldDim, fontSize: 12, whiteSpace: "nowrap" }}>{priceLabel(en.info)}</div>
+            {lp.loading && (
+              <div style={{ fontSize: 11, color: C.sub, padding: "6px 0 2px" }}>어울리는 음식 찾는 중…</div>
+            )}
+            {lp.open && d && (
+              <div style={{ marginTop: 8, padding: "10px 12px", background: C.panel2,
+                border: `1px solid ${C.line}`, borderRadius: 10 }}>
+                {(d.meals || []).length > 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ color: C.gold, fontSize: 10, letterSpacing: 2, marginBottom: 4 }}>식사</div>
+                    {d.meals.map((m, i) => (
+                      <div key={i} style={{ fontSize: 12, color: C.text, marginBottom: 3, lineHeight: 1.5 }}>
+                        · {safeStr(m.food)}
+                        {m.why && <span style={{ color: C.sub }}> — {safeStr(m.why)}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {(d.snacks || []).length > 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ color: C.gold, fontSize: 10, letterSpacing: 2, marginBottom: 4 }}>안주</div>
+                    {d.snacks.map((m, i) => (
+                      <div key={i} style={{ fontSize: 12, color: C.text, marginBottom: 3, lineHeight: 1.5 }}>
+                        · {safeStr(m.food)}
+                        {m.why && <span style={{ color: C.sub }}> — {safeStr(m.why)}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {d.serving && (
+                  <div style={{ fontSize: 11, color: C.goldDim, marginTop: 6 }}>🌡 {safeStr(d.serving)}</div>
+                )}
+                {d.avoid && (
+                  <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>⚠ 피할 조합: {safeStr(d.avoid)}</div>
+                )}
+              </div>
             )}
           </div>
-        );
+          );
+        };
         const sec = (title, list) => list.length ? (
           <div style={{ marginBottom: 18 }}>
             <div style={{ color: C.gold, fontSize: 12, letterSpacing: 3, marginBottom: 10,
@@ -4726,7 +4875,8 @@ function App() {
                   CELLAR LIST
                 </div>
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>
-                  {myLabel} · {held.length}종 {held.reduce((t, en) => t + (Number(en.stock) || 0), 0)}병 · 가격은 추정 포함
+                  {myLabel} · {held.length}종 {held.reduce((t, en) => t + (Number(en.stock) || 0), 0)}병
+                  <div style={{ marginTop: 3 }}>술을 누르면 어울리는 식사·안주를 추천해요</div>
                 </div>
               </div>
               {sec("WINE", wines)}
