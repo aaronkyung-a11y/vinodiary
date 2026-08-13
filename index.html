@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.36";
+const APP_VERSION = "v1.38";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -175,12 +175,30 @@ async function api(payload) {
     headers: { "Content-Type": "text/plain;charset=utf-8" }, // CORS 프리플라이트 회피
     body: JSON.stringify(withOwner),
   });
-  return res.json();
+  return parseApiResponse(res);
+}
+
+// Apps Script가 JSON 대신 HTML 오류 페이지를 반환하는 경우가 있다
+// (실행 시간 초과, 권한 문제 등). 원문 대신 원인 안내를 던진다.
+async function parseApiResponse(res) {
+  const text = await res.text();
+  const head = text.slice(0, 200).trim();
+  if (head.startsWith("<")) {
+    if (/로그인|signin|accounts\.google/i.test(head)) {
+      throw new Error("서버 접근 권한 오류 — Apps Script 배포 권한을 '모든 사용자'로 확인해 주세요");
+    }
+    throw new Error("서버가 응답을 완료하지 못했어요(시간 초과 추정). 잠시 후 다시 시도해 주세요");
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error("서버 응답을 해석하지 못했어요 — 다시 시도해 주세요");
+  }
 }
 async function apiList() {
   const url = getApiUrl();
   const res = await fetch(url + "?action=list&owner=" + encodeURIComponent(getProfile()));
-  return res.json();
+  return parseApiResponse(res);
 }
 
 // ---------- UI 토큰 ----------
@@ -846,7 +864,10 @@ function App() {
     // 이전 자동닫힘 타이머 취소 — 안 하면 직전 완료 토스트의 타이머가
     // 새로 뜬 로딩 토스트("상세 분석 중…" 등)까지 지워버림
     if (toastTimerRef.current) { clearTimeout(toastTimerRef.current); toastTimerRef.current = null; }
-    if (kind !== "loading") toastTimerRef.current = setTimeout(() => setToast(null), 1800);
+    // 에러는 문구를 읽을 시간이 필요해 조금 더 오래 유지
+    if (kind !== "loading") {
+      toastTimerRef.current = setTimeout(() => setToast(null), kind === "error" ? 4000 : 1800);
+    }
   }
   function saveName(name) {
     setUserName(name);
@@ -1962,6 +1983,11 @@ function App() {
       const r = await api({ action: "pairFood", food: foodText.trim(), onlyStock: pairOnlyStock,
         recent: pairOnlyStock ? recentPickRef.current.slice(0, 6) : [] });
       if (!r || r.error) throw new Error((r && r.error) || "빈 응답");
+      // 세 필드가 모두 비면 조용히 아무것도 안 뜨던 문제 — 안내를 채워 표시
+      const nC = (r.fromCellar || []).length, nS = (r.suggestions || []).length;
+      if (!nC && !nS && !r.tip) {
+        r.tip = "추천을 만들지 못했어요. 음식 이름을 더 구체적으로 적거나 다시 시도해 주세요.";
+      }
       setFoodResult(r);
       setFoodWishDone({});
       // 방금 추천된 병을 기억 — 다음 조회에서 가급적 다른 병이 나오도록
