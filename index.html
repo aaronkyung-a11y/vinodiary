@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.38";
+const APP_VERSION = "v1.39";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -586,15 +586,41 @@ function App() {
   // ===== WSET 모의고사 =====
   const EXAM_TOTAL = 10;      // 총 문항
   const EXAM_FIRST = 3;       // 먼저 받을 문항
+  const EXAM_SEEN_KEY = "vinodiary:examSeen"; // 지난 회차 문제(주제·과목·레벨별)
+  const EXAM_SEEN_MAX = 40;   // 회피 목록으로 넘길 최대 개수
+
+  function examSeenKey(subject, level) { return subject + ":" + level; }
+  function readExamSeen(subject, level) {
+    try {
+      const all = JSON.parse(localStorage.getItem(EXAM_SEEN_KEY) || "{}");
+      const arr = all[examSeenKey(subject, level)];
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
+  }
+  // 새로 출제된 문제를 누적 저장 — 다음 시험에서 같은 문제가 안 나오게
+  function pushExamSeen(subject, level, questions) {
+    try {
+      const all = JSON.parse(localStorage.getItem(EXAM_SEEN_KEY) || "{}");
+      const k = examSeenKey(subject, level);
+      const prev = Array.isArray(all[k]) ? all[k] : [];
+      const added = (questions || []).map((q) => q && q.q).filter(Boolean);
+      all[k] = added.concat(prev.filter((x) => added.indexOf(x) < 0)).slice(0, EXAM_SEEN_MAX);
+      localStorage.setItem(EXAM_SEEN_KEY, JSON.stringify(all));
+    } catch (e) {}
+  }
   async function startExam() {
     setExamLoading(true);
     setExamStage("loading");
     setExamFetchingMore(false);
     try {
       // 1차: 앞 3문항만 빠르게
-      const r = await api({ action: "examQuiz", subject: examSubject, level: examLevel, count: EXAM_FIRST });
+      // 지난 회차에 나온 문제들을 회피 목록으로 함께 보낸다(같은 문제 반복 방지)
+      const seen = readExamSeen(examSubject, examLevel);
+      const r = await api({ action: "examQuiz", subject: examSubject, level: examLevel,
+        count: EXAM_FIRST, avoid: seen });
       if (r.error) throw new Error(r.error);
       if (!r.questions || !r.questions.length) throw new Error("문제를 만들지 못했어요");
+      pushExamSeen(examSubject, examLevel, r.questions);
       setExamData(r);
       setExamIdx(0);
       setExamSel({});
@@ -613,9 +639,11 @@ function App() {
     if (need <= 0) return;
     setExamFetchingMore(true);
     try {
-      const avoid = firstBatch.questions.map((q) => q.q).filter(Boolean);
+      const avoid = firstBatch.questions.map((q) => q.q).filter(Boolean)
+        .concat(readExamSeen(examSubject, examLevel)).slice(0, 40);
       const r2 = await api({ action: "examQuiz", subject: examSubject, level: examLevel, count: need, avoid });
       if (r2 && r2.questions && r2.questions.length) {
+        pushExamSeen(examSubject, examLevel, r2.questions);
         setExamData((prev) => {
           if (!prev) return prev;
           return { ...prev, questions: prev.questions.concat(r2.questions), tip: prev.tip || r2.tip };
