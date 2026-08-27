@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.39";
+const APP_VERSION = "v1.40";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -4905,6 +4905,11 @@ function App() {
           if (!groupMap[key].info || !groupMap[key].info.price) {
             if (en.info && en.info.price) groupMap[key].info = en.info;
           }
+          // 점수도 승계 — 내 점수가 있는 기록을 우선, 없으면 예측 점수라도
+          if (groupMap[key].myScore == null && en.myScore != null) groupMap[key].myScore = en.myScore;
+          if (groupMap[key].predictedScore == null && en.predictedScore != null) {
+            groupMap[key].predictedScore = en.predictedScore;
+          }
         });
         const held = Object.keys(groupMap).map((k) => groupMap[k]);
         const wines = held.filter((en) => en.kind !== "whisky");
@@ -4921,6 +4926,21 @@ function App() {
                   color: lp.open ? C.gold : C.text }}>
                   {en.name}
                   <span style={{ color: C.goldDim, fontSize: 12, marginLeft: 6 }}>×{en.stock}</span>
+                  {(() => {
+                    // 내 점수가 있으면 그것을, 없으면 예측 점수를 '추정'으로 표시
+                    const mine = en.myScore != null ? en.myScore : null;
+                    const pred = (mine == null && en.predictedScore != null) ? en.predictedScore : null;
+                    if (mine == null && pred == null) return null;
+                    return (
+                      <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 700,
+                        color: mine != null ? C.gold : C.sub, fontFamily: "Georgia, serif" }}>
+                        {mine != null ? mine : pred}
+                        <span style={{ fontSize: 9, fontWeight: 400, marginLeft: 2, color: C.sub }}>
+                          {mine != null ? "" : "추정"}
+                        </span>
+                      </span>
+                    );
+                  })()}
                 </div>
                 {en.nameKo && en.nameKo !== en.name && (
                   <div style={{ fontSize: 11, color: C.sub }}>{en.nameKo}</div>
