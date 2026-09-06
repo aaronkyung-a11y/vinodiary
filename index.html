@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.40";
+const APP_VERSION = "v1.41";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -1558,6 +1558,19 @@ function App() {
       setResult(r);
       // 분석 완료: 결과 위치로 스크롤 + 완료 알림
       showToast("분석 완료", "done");
+      // 가격이 비어 오면 별도 추정으로 보완 — 화면에 가격이 항상 뜨도록
+      if (!(r.info && r.info.price)) {
+        (async () => {
+          try {
+            const pr = await api({ action: "estimatePrice", name: r.name || name, kind: r.kind || kind });
+            if (pr && pr.price) {
+              setResult((prev) => (prev && prev.name === r.name)
+                ? { ...prev, info: { ...(prev.info || {}), price: pr.price, priceEst: true } }
+                : prev);
+            }
+          } catch (e3) { /* 보완 실패는 분석 결과에 영향 없음 */ }
+        })();
+      }
       setTimeout(() => { try { resultRef.current && resultRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {} }, 80);
       // 이미 셀러/위시에 있는 술인지 확인
       try { const m = findInCellar(r.name); setCellarMatch(m || null); } catch (e) { setCellarMatch(null); }
