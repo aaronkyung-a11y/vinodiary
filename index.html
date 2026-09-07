@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.41";
+const APP_VERSION = "v1.42";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -1147,6 +1147,19 @@ function App() {
       setPostWine(r);
       // 이름칸이 비어 있으면 인식된 이름 채움
       if (!postWineName.trim() && r.name) setPostWineName(r.name);
+      // 가격이 비어 오면 별도 추정으로 보완(분석 탭과 동일)
+      if (!(r.info && r.info.price)) {
+        (async () => {
+          try {
+            const pr = await api({ action: "estimatePrice", name: r.name, kind: r.kind });
+            if (pr && pr.price) {
+              setPostWine((prev) => (prev && prev.name === r.name)
+                ? { ...prev, info: { ...(prev.info || {}), price: pr.price, priceEst: true } }
+                : prev);
+            }
+          } catch (e3) { /* 보완 실패는 분석에 영향 없음 */ }
+        })();
+      }
       // 셀러에 같은 술이 있으면 기록 불러오기
       mergeFromCellar(r);
     } catch (e) {
@@ -1249,7 +1262,7 @@ function App() {
           id: Date.now() + 1,
           date: kstNow(),
           name: postWine.name, nameKo: postWine.nameKo || "", kind: postWine.kind,
-          resembles: postWine.resembles || "",
+          resembles: safeStr(postWine.resembles || ""),
           predictedScore: postWine.predictedScore ?? null,
           reason: postWine.reason || "",
           myScore: isMe ? (postWineScore ?? null) : null,
@@ -1260,6 +1273,9 @@ function App() {
           subtype: postWine.subtype || "",
           info: postWine.info || null,
           infoUncertain: postWine.infoUncertain || false,
+          // v1.42: 피드 경로도 상세(프로파일·당신에게·페어링·서빙 팁)를 함께 저장.
+          // analyze가 v1.33부터 상세를 함께 반환하는데 이 경로만 버리고 있었음.
+          detail: pickDetail(postWine),
           companions: "", note: postText.trim(),
         };
         await api({ action: "save", entry });
