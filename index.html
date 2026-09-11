@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.42";
+const APP_VERSION = "v1.43";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -387,6 +387,7 @@ function App() {
   const [recs, setRecs] = useState(null);
   const [recLoading, setRecLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncTry, setSyncTry] = useState(""); // 재시도 진행 표시(예: "2/3")
   const [kindFilter, setKindFilter] = useState("all"); // all | wine | whisky | wishlist
   const [expandedIds, setExpandedIds] = useState(() => new Set()); // 펼쳐진 카드 id들(다중)
   // 카드 펼침 토글: 열 때 해당 카드 상단이 보이도록 스크롤(제목부터)
@@ -1420,23 +1421,27 @@ function App() {
   // 콜드스타트로 첫 요청이 느려도, 그 요청이 서버를 깨우므로 다음 시도가 빨라진다.
   async function fetchWithRetry(url, opts) {
     const tries = (opts && opts.tries) || 3;
-    const timeoutMs = (opts && opts.timeoutMs) || 20000;
+    const base = (opts && opts.timeoutMs) || 30000;
+    const onTry = opts && opts.onTry;
     let lastErr = null;
     for (let i = 0; i < tries; i++) {
+      // 시도마다 대기를 늘린다(30s → 45s → 60s). 기록이 많거나 콜드스타트면
+      // 20초 고정으로는 서버가 응답을 끝내기 전에 끊겨 계속 실패했음.
+      const timeoutMs = base + i * 15000;
+      if (onTry) { try { onTry(i + 1, tries); } catch (e2) {} }
       const ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
       const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
       try {
         const res = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
         if (timer) clearTimeout(timer);
-        return await res.json();
+        return await parseApiResponse(res); // HTML 오류 페이지도 사람이 읽는 메시지로
       } catch (e) {
         if (timer) clearTimeout(timer);
         lastErr = e;
-        // 마지막 시도가 아니면 짧게 쉬고 재시도(서버가 깨어나는 시간 확보)
         if (i < tries - 1) await new Promise((r) => setTimeout(r, 1500));
       }
     }
-    throw lastErr || new Error("fetch failed");
+    throw lastErr || new Error("서버 응답이 없어요");
   }
 
   async function refresh(forProfile) {
@@ -1448,7 +1453,8 @@ function App() {
       // 콜드스타트(첫 호출 수십초) 대비: 타임아웃 후 재시도. 첫 요청이 서버를 깨우고 재시도가 빠르게 성공.
       const _t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
       const bootUrl = url + "?action=bootstrap&owner=" + encodeURIComponent(prof);
-      const r = await fetchWithRetry(bootUrl, { tries: 3, timeoutMs: 20000 });
+      const r = await fetchWithRetry(bootUrl, { tries: 3, timeoutMs: 30000,
+        onTry: (n, total) => { if (n > 1) setSyncTry(n + "/" + total); } });
       try {
         const _total = Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - _t0);
         console.log("[sync] total=" + _total + "ms server=" + (r && r._serverMs != null ? r._serverMs : "?") + "ms entries=" + ((r && r.entries) ? r.entries.length : 0));
@@ -1478,9 +1484,16 @@ function App() {
       const selfKeys = ["me", "나", prof].filter(Boolean);
       setRaters(myFriends.filter((p) => !selfKeys.includes(p)));
     } catch (e) {
-      setError("기록을 불러오지 못했어요. API URL을 확인하세요.");
+      const msg = String(e && e.message ? e.message : e);
+      const isAbort = /abort|timeout|시간 초과/i.test(msg);
+      setError(isAbort
+        ? "동기화 시간이 초과됐어요. 잠시 후 다시 시도해 주세요."
+        : "기록을 불러오지 못했어요: " + msg.slice(0, 60));
+      // 분석 탭 등 에러 영역이 안 보이는 화면에서도 알 수 있게 토스트로도 알림
+      showToast(isAbort ? "동기화 시간 초과 — 다시 시도해 주세요" : "동기화 실패", "error");
     } finally {
       setSyncing(false);
+      setSyncTry("");
     }
   }
 
@@ -2484,7 +2497,7 @@ function App() {
           <button onClick={refresh} style={{ background: "none", border: `1px solid ${C.line}`,
             color: syncing ? C.gold : C.sub, borderRadius: 8, padding: "6px 10px", fontSize: 12,
             cursor: "pointer" }}>
-            {syncing ? "동기화…" : "↻ 새로고침"}
+            {syncing ? ("동기화…" + (syncTry ? " " + syncTry : "")) : "↻ 새로고침"}
           </button>
           <div style={{ position: "relative" }}>
             <button onClick={() => setProfileMenuOpen((v) => !v)}
