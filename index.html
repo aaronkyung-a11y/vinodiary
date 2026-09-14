@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.43";
+const APP_VERSION = "v1.44";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -83,6 +83,40 @@ function safeStr(v) {
   const s = String(v);
   return /\[L?java\.lang\.Object;@|\[Ljava|\[object Object\]/.test(s) ? "" : s;
 }
+// 최근 검색어(셀러) — 기기별 로컬 저장
+const SEARCH_HIST_KEY = "vinodiary:searchHist";
+const SEARCH_HIST_MAX = 8;
+function readSearchHist() {
+  try {
+    const a = JSON.parse(localStorage.getItem(SEARCH_HIST_KEY) || "[]");
+    return Array.isArray(a) ? a : [];
+  } catch (e) { return []; }
+}
+function pushSearchHist(q) {
+  const t = String(q || "").trim();
+  if (t.length < 2) return readSearchHist(); // 한 글자는 저장하지 않음
+  const prev = readSearchHist().filter((x) => x !== t);
+  const next = [t, ...prev].slice(0, SEARCH_HIST_MAX);
+  try { localStorage.setItem(SEARCH_HIST_KEY, JSON.stringify(next)); } catch (e) {}
+  return next;
+}
+
+// 지난 추천 결과 — 기기별 로컬 저장
+const REC_HIST_KEY = "vinodiary:recHist";
+const REC_HIST_MAX = 10;
+function readRecHist() {
+  try {
+    const a = JSON.parse(localStorage.getItem(REC_HIST_KEY) || "[]");
+    return Array.isArray(a) ? a : [];
+  } catch (e) { return []; }
+}
+function pushRecHist(rec) {
+  if (!rec || !rec.items || !rec.items.length) return readRecHist();
+  const next = [rec, ...readRecHist()].slice(0, REC_HIST_MAX);
+  try { localStorage.setItem(REC_HIST_KEY, JSON.stringify(next)); } catch (e) {}
+  return next;
+}
+
 function entriesCacheKey(prof) { return ENTRIES_CACHE_PREFIX + (prof || ""); }
 function readEntriesCache(prof) {
   try {
@@ -388,6 +422,9 @@ function App() {
   const [recLoading, setRecLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncTry, setSyncTry] = useState(""); // 재시도 진행 표시(예: "2/3")
+  const [searchHist, setSearchHist] = useState(() => readSearchHist()); // 최근 검색어
+  const [recHist, setRecHist] = useState(() => readRecHist());          // 지난 추천
+  const [showRecHist, setShowRecHist] = useState(false);
   const [kindFilter, setKindFilter] = useState("all"); // all | wine | whisky | wishlist
   const [expandedIds, setExpandedIds] = useState(() => new Set()); // 펼쳐진 카드 id들(다중)
   // 카드 펼침 토글: 열 때 해당 카드 상단이 보이도록 스크롤(제목부터)
@@ -2360,7 +2397,16 @@ function App() {
     try {
       const cond = recCondition.trim();
       const r = await api({ action: "recommend", forWhom: recFor, condition: cond || undefined });
-      setRecs(Array.isArray(r) ? r : []);
+      const list = Array.isArray(r) ? r : [];
+      setRecs(list);
+      // 지난 추천으로 남겨 나중에 다시 볼 수 있게(저장하지 않고 넘긴 술도 찾기 위함)
+      if (list.length) {
+        setRecHist(pushRecHist({
+          at: kstNow(), forWhom: recFor, condition: cond,
+          items: list.map((x) => ({ name: x.name, nameKo: x.nameKo || "", kind: x.kind,
+            why: safeStr(x.why || ""), predictedScore: x.predictedScore ?? null })),
+        }));
+      }
     } catch (e) {
       setRecs([]);
     } finally {
@@ -3533,6 +3579,8 @@ function App() {
             {entries.length > 0 && (
               <div style={{ position: "relative", marginBottom: 10 }}>
                 <input value={search} onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") setSearchHist(pushSearchHist(search)); }}
+                  onBlur={() => setSearchHist(pushSearchHist(search))}
                   placeholder="술 이름 검색 (한글·영문·부분)"
                   style={{ width: "100%", boxSizing: "border-box", background: C.panel,
                     border: `1px solid ${C.line}`, borderRadius: 10, color: C.text,
@@ -3542,6 +3590,25 @@ function App() {
                     style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
                       background: "none", border: "none", color: C.sub, fontSize: 18, cursor: "pointer" }}>×</button>
                 )}
+              </div>
+            )}
+            {/* 최근 검색어 — 탭하면 바로 재검색 */}
+            {entries.length > 0 && !search.trim() && searchHist.length > 0 && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+                <span style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1 }}>최근 검색</span>
+                {searchHist.map((q) => (
+                  <button key={q} onClick={() => setSearch(q)}
+                    style={{ padding: "4px 10px", borderRadius: 12, border: `1px solid ${C.line}`,
+                      background: "transparent", color: C.sub, fontSize: 12, cursor: "pointer" }}>
+                    {q}
+                  </button>
+                ))}
+                <button onClick={() => {
+                    try { localStorage.removeItem(SEARCH_HIST_KEY); } catch (e) {}
+                    setSearchHist([]);
+                  }}
+                  style={{ padding: "4px 8px", background: "none", border: "none",
+                    color: C.sub, fontSize: 11, cursor: "pointer" }}>지우기</button>
               </div>
             )}
             {entries.length > 0 && (
@@ -4156,6 +4223,16 @@ function App() {
                     recFor === "me" ? "내 취향과 비슷한 술 추천받기" :
                     `${recFor} 취향으로 추천받기`}
             </button>
+
+            {/* 지난 추천 다시 보기 */}
+            {recHist.length > 0 && (
+              <button onClick={() => setShowRecHist(true)}
+                style={{ width: "100%", padding: "10px", marginBottom: 10, background: "transparent",
+                  color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 10, fontSize: 13,
+                  cursor: "pointer" }}>
+                ↺ 지난 추천 보기 ({recHist.length}회)
+              </button>
+            )}
 
             {/* 취향 일관/비일관 분석 */}
             <div style={{ marginBottom: 16 }}>
@@ -4933,6 +5010,68 @@ function App() {
               fontSize: 13, cursor: "pointer", padding: "2px 6px" }}>되돌리기</button>
         </div>
       )}
+      {/* 지난 추천 기록 */}
+      {showRecHist && (
+        <div onClick={() => setShowRecHist(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(10,8,4,0.92)", zIndex: 90,
+            overflowY: "auto", padding: "30px 22px 60px" }}>
+          <div onClick={(ev) => ev.stopPropagation()}
+            style={{ maxWidth: 420, margin: "0 auto", background: C.panel,
+              border: `1px solid ${C.goldDim}`, borderRadius: 16, padding: "24px 20px" }}>
+            <div style={{ textAlign: "center", marginBottom: 18 }}>
+              <div style={{ fontFamily: "Georgia, serif", fontSize: 18, color: C.gold, letterSpacing: 3 }}>
+                지난 추천
+              </div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>
+                최근 {recHist.length}회 · 이 기기에만 저장돼요
+              </div>
+            </div>
+            {recHist.map((h, hi) => (
+              <div key={hi} style={{ marginBottom: 16, paddingBottom: 14,
+                borderBottom: hi < recHist.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                <div style={{ fontSize: 11, color: C.goldDim, marginBottom: 6 }}>
+                  {h.at}
+                  {h.forWhom && h.forWhom !== "me" ? " · " + (h.forWhom === "common" ? "다 같이" : h.forWhom) : ""}
+                  {h.condition ? " · 조건: " + h.condition : ""}
+                </div>
+                {(h.items || []).map((it, ii) => (
+                  <div key={ii} style={{ marginBottom: 6 }}>
+                    <div style={{ fontSize: 13, color: C.text }}>
+                      {it.predictedScore != null && (
+                        <span style={{ color: C.gold, fontWeight: 700, marginRight: 6,
+                          fontFamily: "Georgia, serif" }}>{it.predictedScore}</span>
+                      )}
+                      {it.name}
+                      {it.nameKo && it.nameKo !== it.name && (
+                        <span style={{ color: C.sub, fontSize: 11, marginLeft: 5 }}>{it.nameKo}</span>
+                      )}
+                    </div>
+                    {it.why && (
+                      <div style={{ fontSize: 11, color: C.sub, marginTop: 1, lineHeight: 1.5 }}>{it.why}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+              <button onClick={() => {
+                  try { localStorage.removeItem(REC_HIST_KEY); } catch (e) {}
+                  setRecHist([]); setShowRecHist(false);
+                }}
+                style={{ flex: 1, padding: "11px", background: "transparent",
+                  color: C.sub, border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 13, cursor: "pointer" }}>
+                기록 지우기
+              </button>
+              <button onClick={() => setShowRecHist(false)}
+                style={{ flex: 1, padding: "11px", background: "transparent",
+                  color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 10, fontSize: 13, cursor: "pointer" }}>
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 내 셀러 리스트 — 보유 병을 메뉴판 스타일로 */}
       {showCellarList && (() => {
         // 같은 술이 여러 기록으로 나뉘어 있어도 리스트에선 한 줄로 합산 표시
