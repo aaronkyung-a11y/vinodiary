@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.44";
+const APP_VERSION = "v1.45";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -1635,6 +1635,26 @@ function App() {
                 : prev);
             }
           } catch (e3) { /* 보완 실패는 분석 결과에 영향 없음 */ }
+        })();
+      }
+      // 상세(프로파일·당신에게·페어링·서빙)가 안 왔으면 지금 미리 받아둔다.
+      // 저장 시점에 "상세 분석 중…"으로 기다리게 하지 않기 위함 — 결과가 뜨는 동안
+      // 백그라운드로 받아 화면에 채우고 캐시해 두면 저장은 즉시 끝난다.
+      if (!(r.profile || r.forYou || r.pairing || r.serving)) {
+        (async () => {
+          try {
+            const d = await api({ action: "detail", name: r.name || name, kind: r.kind || kind });
+            if (d && !d.error) {
+              detailCacheRef.current[r.name] = d;
+              setResult((prev) => (prev && prev.name === r.name)
+                ? { ...prev,
+                    profile: prev.profile || d.profile, forYou: prev.forYou || d.forYou,
+                    pairing: prev.pairing || d.pairing, serving: prev.serving || d.serving,
+                    axes: prev.axes || d.axes || null,
+                    info: { ...(d.info || {}), ...(prev.info || {}) } }
+                : prev);
+            }
+          } catch (e4) { /* 실패해도 저장 시 재시도됨 */ }
         })();
       }
       setTimeout(() => { try { resultRef.current && resultRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {} }, 80);
