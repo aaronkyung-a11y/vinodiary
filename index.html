@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.46";
+const APP_VERSION = "v1.47";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -386,7 +386,8 @@ function RealMap({ regionKey, hit, onFail }) {
   }
 
   return (
-    <div style={{ position: "relative" }}>
+    // zIndex 0 + isolation: Leaflet 내부 z-index(400~1000)가 하단 메뉴·모달 위로 새지 않게 가둠
+    <div style={{ position: "relative", zIndex: 0, isolation: "isolate" }}>
       <div ref={boxRef} style={{ height: 270, borderRadius: 8, overflow: "hidden", background: "#E8E4DA" }} />
       <button onClick={toggleLock}
         style={{ position: "absolute", right: 8, bottom: 22, zIndex: 500, padding: "4px 9px",
@@ -5462,7 +5463,7 @@ function App() {
       )}
       <style>{`@keyframes vd-spin { to { transform: rotate(360deg); } }`}</style>
 
-      <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.panel,
+      <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 40, background: C.panel,
         borderTop: `1px solid ${C.line}`, display: "flex", maxWidth: 560, margin: "0 auto" }}>
         {[["feed", "피드", "❖"], ["add", "분석", "✦"], ["cellar", "셀러", "▤"], ["recommend", "추천", "✧"], ["quiz", "퀴즈", "◈"]].map(
           ([id, label, icon]) => (
