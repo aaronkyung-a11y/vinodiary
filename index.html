@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.47";
+const APP_VERSION = "v1.48";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -114,6 +114,36 @@ function pushRecHist(rec) {
   if (!rec || !rec.items || !rec.items.length) return readRecHist();
   const next = [rec, ...readRecHist()].slice(0, REC_HIST_MAX);
   try { localStorage.setItem(REC_HIST_KEY, JSON.stringify(next)); } catch (e) {}
+  return next;
+}
+
+// 지난 분석 결과 — 기기별 로컬 저장. 같은 술·같은 평가자면 API 재호출 없이 불러온다.
+const ANA_HIST_KEY = "vinodiary:anaHist";
+const ANA_HIST_MAX = 40;
+function anaNorm(x) { return String(x || "").toLowerCase().replace(/[\s'’"`.,·\-()]/g, ""); }
+function readAnaHist() {
+  try {
+    const a = JSON.parse(localStorage.getItem(ANA_HIST_KEY) || "[]");
+    return Array.isArray(a) ? a : [];
+  } catch (e) { return []; }
+}
+function findAnaHist(name, rater) {
+  const k = anaNorm(name);
+  if (!k) return null;
+  return readAnaHist().find((h) => h.rater === rater &&
+    (h.keys || []).some((x) => x === k)) || null;
+}
+function pushAnaHist(entry) {
+  const keys = Array.from(new Set((entry.keys || []).map(anaNorm).filter(Boolean)));
+  const prev = readAnaHist();
+  const old = prev.find((h) => h.rater === entry.rater && (h.keys || []).some((x) => keys.includes(x)));
+  const merged = { ...entry, keys: Array.from(new Set([...(old ? old.keys : []), ...keys])),
+    at: entry.at || (old && old.at) || Date.now() };
+  let next = [merged, ...prev.filter((h) => h !== old)].slice(0, ANA_HIST_MAX);
+  for (let i = 0; i < 4; i++) {
+    try { localStorage.setItem(ANA_HIST_KEY, JSON.stringify(next)); break; }
+    catch (e) { next = next.slice(0, Math.max(1, Math.floor(next.length / 2))); } // 용량 초과 시 오래된 것부터 버림
+  }
   return next;
 }
 
@@ -741,6 +771,12 @@ function App() {
   const [searchHist, setSearchHist] = useState(() => readSearchHist()); // 최근 검색어
   const [recHist, setRecHist] = useState(() => readRecHist());          // 지난 추천
   const [showRecHist, setShowRecHist] = useState(false);
+  const [anaHist, setAnaHist] = useState(() => readAnaHist());          // 지난 분석
+  const [showAnaHist, setShowAnaHist] = useState(false);
+  const [anaHistQ, setAnaHistQ] = useState("");
+  const [resultFromHist, setResultFromHist] = useState(null);            // 불러온 기록의 분석 시각
+  const anaInputRef = useRef("");                                        // 사용자가 입력한 원문(기록 검색 키로 추가)
+  const anaMetaRef = useRef(null);                                       // {rater, asked, kind} 현재 결과의 저장 키
   const [kindFilter, setKindFilter] = useState("all"); // all | wine | whisky | wishlist
   const [expandedIds, setExpandedIds] = useState(() => new Set()); // 펼쳐진 카드 id들(다중)
   // 카드 펼침 토글: 열 때 해당 카드 상단이 보이도록 스크롤(제목부터)
@@ -829,6 +865,21 @@ function App() {
     });
   }
   const [raterScores, setRaterScores] = useState(null); // 비교 결과 [{rater,score,why,confidence}]
+  // 분석 결과가 바뀔 때마다(가격·상세·다같이 점수 보완 포함) 기록에 최신본 저장
+  useEffect(() => {
+    const meta = anaMetaRef.current;
+    if (!result || !result.name || !meta) return;
+    const t = setTimeout(() => {
+      setAnaHist(pushAnaHist({
+        keys: [meta.asked, meta.input, result.name, result.nameKo],
+        rater: meta.rater, at: meta.at,
+        name: result.name, nameKo: result.nameKo || "", kind: result.kind || meta.kind || "",
+        score: result.predictedScore != null ? result.predictedScore : null,
+        result, raterScores: raterScores || null,
+      }));
+    }, 600);
+    return () => clearTimeout(t);
+  }, [result, raterScores]);
   const [menuFor, setMenuFor] = useState(["me"]); // 메뉴판 분석 기준 평가자(다중 선택)
   // 메뉴 평가자 토글: "다 같이"는 단독, 개별은 복수 선택
   function toggleMenuFor(k) {
@@ -1777,9 +1828,17 @@ function App() {
       setError("사진을 올리거나 술에 대해 설명해 주세요.");
       return;
     }
+    if (!imageData && text) {
+      const isCommon0 = analyzeForMulti.includes("common");
+      const rater0 = isCommon0 ? "common" : (analyzeForMulti[0] || "me");
+      const h = findAnaHist(text, rater0);
+      if (h && h.result) { restoreAnalysis(h); showToast("지난 분석을 불러왔어요", "done"); return; }
+    }
+    anaInputRef.current = imageData ? "" : String(text || "");
     setError(null);
     setCandLoading(true);
     setResult(null);
+    setResultFromHist(null);
     setCandidates(null);
     try {
       const r = await api({ action: "analyzeCandidates", text, imageData });
@@ -1805,7 +1864,35 @@ function App() {
   }
 
   // 후보 하나를 골라 상세 분석
-  async function analyzeOne(name, kind) {
+  // 기록에서 결과 복원(API 호출 없음)
+  function restoreAnalysis(h) {
+    anaMetaRef.current = null; // 복원 직후 effect가 at을 갱신하지 않게
+    setError(null); setCandidates(null); setResultSaved(null); setStockOnSave(0);
+    if (h.rater) setAnalyzeForMulti([h.rater]);
+    setRaterScores(h.raterScores || null);
+    setResult(h.result);
+    setResultFromHist(h.at || null);
+    if (h.result && h.result.name) {
+      if (h.result.profile || h.result.forYou || h.result.pairing || h.result.serving)
+        detailCacheRef.current[h.result.name] = detailCacheRef.current[h.result.name] || h.result;
+      try { const m = findInCellar(h.result.name); setCellarMatch(m || null); } catch (e) { setCellarMatch(null); }
+    }
+    setTimeout(() => { try { resultRef.current && resultRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {} }, 80);
+  }
+
+  async function analyzeOne(name, kind, opts) {
+    const force = !!(opts && opts.force);
+    {
+      const isCommon0 = analyzeForMulti.includes("common");
+      const rater0 = isCommon0 ? "common" : (analyzeForMulti[0] || "me");
+      const h = force ? null : findAnaHist(name, rater0);
+      if (h && h.result) {
+        restoreAnalysis(h);
+        showToast("지난 분석을 불러왔어요", "done");
+        return;
+      }
+    }
+    setResultFromHist(null);
     setError(null);
     setAnalyzing(true);
     setResult(null);
@@ -1820,6 +1907,8 @@ function App() {
       const mainRater = isCommon ? "common" : (analyzeForMulti[0] || "me");
       const r = await api({ action: "analyze", text: name + (kind ? " (" + kind + ")" : ""), forWhom: mainRater });
       if (r.error) throw new Error(r.error);
+      anaMetaRef.current = { rater: mainRater, asked: name, input: anaInputRef.current, kind: r.kind || kind, at: Date.now() };
+      anaInputRef.current = "";
       setResult(r);
       // 분석 완료: 결과 위치로 스크롤 + 완료 알림
       showToast("분석 완료", "done");
@@ -3331,6 +3420,14 @@ function App() {
                 ((analyzeMain === "me" || analyzeMain === "나") ? "내 취향으로 분석하기" : `${analyzeMain} 취향으로 분석하기`)}
             </button>
             )}
+            {analyzeMode === "single" && anaHist.length > 0 && (
+              <button onClick={() => { setAnaHistQ(""); setShowAnaHist(true); }}
+                style={{ width: "100%", padding: "10px", marginTop: 8, background: "transparent",
+                  color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 10, fontSize: 13,
+                  cursor: "pointer" }}>
+                ↺ 지난 분석 보기 ({anaHist.length})
+              </button>
+            )}
 
             {error && <div style={{ color: "#D98", marginTop: 12, fontSize: 13 }}>{error}</div>}
 
@@ -3508,6 +3605,17 @@ function App() {
             {result && analyzeMode === "single" && (
               <div ref={resultRef} style={{ marginTop: 18, background: C.panel, border: `1px solid ${C.line}`,
                 borderRadius: 16, padding: 18 }}>
+                {resultFromHist && (
+                  <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 8,
+                    fontSize: 12, color: C.sub }}>
+                    <span style={{ flex: 1 }}>↺ 지난 분석 · {new Date(resultFromHist).toLocaleDateString("ko-KR")}</span>
+                    <button onClick={() => analyzeOne(result.name, result.kind, { force: true })} disabled={analyzing}
+                      style={{ padding: "5px 10px", fontSize: 12, background: "transparent", color: C.gold,
+                        border: `1px solid ${C.goldDim}`, borderRadius: 8, cursor: "pointer" }}>
+                      {analyzing ? "분석 중…" : "새로 분석"}
+                    </button>
+                  </div>
+                )}
                 {cellarMatch && (
                   <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: 12,
                     background: C.panel2, border: `1px solid ${C.gold}` }}>
@@ -5229,6 +5337,72 @@ function App() {
               fontSize: 13, cursor: "pointer", padding: "2px 6px" }}>되돌리기</button>
         </div>
       )}
+      {/* 지난 분석 기록 */}
+      {showAnaHist && (() => {
+        const q = anaNorm(anaHistQ);
+        const list = anaHist.filter((h) => !q || (h.keys || []).some((k) => k.includes(q)) ||
+          anaNorm(h.nameKo).includes(q));
+        const raterLabel = (r) => r === "me" ? "나" : r === "common" ? "다 같이" : r;
+        return (
+          <div onClick={() => setShowAnaHist(false)}
+            style={{ position: "fixed", inset: 0, background: "rgba(10,8,4,0.92)", zIndex: 90,
+              overflowY: "auto", padding: "30px 22px 60px" }}>
+            <div onClick={(ev) => ev.stopPropagation()}
+              style={{ maxWidth: 420, margin: "0 auto", background: C.panel,
+                border: `1px solid ${C.goldDim}`, borderRadius: 16, padding: "24px 20px" }}>
+              <div style={{ textAlign: "center", marginBottom: 14 }}>
+                <div style={{ fontFamily: "Georgia, serif", fontSize: 18, color: C.gold, letterSpacing: 3 }}>
+                  지난 분석
+                </div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>
+                  최근 {anaHist.length}건 · 이 기기에만 저장 · 누르면 다시 분석하지 않고 바로 열려요
+                </div>
+              </div>
+              {anaHist.length > 6 && (
+                <input value={anaHistQ} onChange={(e) => setAnaHistQ(e.target.value)} placeholder="이름으로 찾기"
+                  style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", marginBottom: 12,
+                    background: C.bg, color: C.text, border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 13 }} />
+              )}
+              {list.length === 0 && (
+                <div style={{ fontSize: 13, color: C.sub, textAlign: "center", padding: "12px 0" }}>찾는 기록이 없어요</div>
+              )}
+              {list.map((h, hi) => (
+                <button key={hi} onClick={() => { setShowAnaHist(false); setTab("add"); setAnalyzeMode("single"); restoreAnalysis(h); }}
+                  style={{ width: "100%", textAlign: "left", display: "flex", gap: 10, alignItems: "center",
+                    padding: "10px 4px", background: "none", border: "none",
+                    borderBottom: hi < list.length - 1 ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
+                  <span style={{ width: 34, textAlign: "center", color: C.gold, fontWeight: 700,
+                    fontFamily: "Georgia, serif", fontSize: 16 }}>{h.score != null ? h.score : "–"}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 13, color: C.text, lineHeight: 1.35 }}>{h.name}</span>
+                    {h.nameKo && h.nameKo !== h.name && (
+                      <span style={{ display: "block", fontSize: 11, color: C.sub, marginTop: 1 }}>{h.nameKo}</span>
+                    )}
+                    <span style={{ display: "block", fontSize: 10, color: C.goldDim, marginTop: 2 }}>
+                      {h.kind === "whisky" ? "WHISKY" : "WINE"} · {raterLabel(h.rater)} 기준 · {h.at ? new Date(h.at).toLocaleDateString("ko-KR") : ""}
+                    </span>
+                  </span>
+                </button>
+              ))}
+              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                <button onClick={() => {
+                    try { localStorage.removeItem(ANA_HIST_KEY); } catch (e) {}
+                    setAnaHist([]); setShowAnaHist(false);
+                  }}
+                  style={{ flex: 1, padding: "11px", background: "transparent",
+                    color: C.sub, border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 13, cursor: "pointer" }}>
+                  기록 지우기
+                </button>
+                <button onClick={() => setShowAnaHist(false)}
+                  style={{ flex: 1, padding: "11px", background: "transparent",
+                    color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 10, fontSize: 13, cursor: "pointer" }}>
+                  닫기
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {/* 지난 추천 기록 */}
       {showRecHist && (
         <div onClick={() => setShowRecHist(false)}
