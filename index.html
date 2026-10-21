@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.48";
+const APP_VERSION = "v1.49";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -5339,9 +5339,16 @@ function App() {
       )}
       {/* 지난 분석 기록 */}
       {showAnaHist && (() => {
-        const q = anaNorm(anaHistQ);
-        const list = anaHist.filter((h) => !q || (h.keys || []).some((k) => k.includes(q)) ||
-          anaNorm(h.nameKo).includes(q));
+        // 셀러 검색과 같은 규칙: 영문·한글명·품종·지역·캐스크·닮은 것 + 입력했던 원문, 한글 품종/스타일 별칭 확장
+        const q = String(anaHistQ || "").trim();
+        const list = anaHist.filter((h) => {
+          if (!q) return true;
+          const r = h.result || {};
+          const e = { name: h.name || r.name, nameKo: h.nameKo || r.nameKo, resembles: r.resembles,
+            subtype: [h.kind === "whisky" ? "whisky 위스키" : "wine 와인", h.rater === "me" ? "나" : h.rater === "common" ? "다같이" : h.rater].join(" "),
+            info: r.info || {}, note: (h.keys || []).join(" ") };
+          return matchSearch(e, q) || (h.keys || []).some((k) => k.includes(anaNorm(q)));
+        });
         const raterLabel = (r) => r === "me" ? "나" : r === "common" ? "다 같이" : r;
         return (
           <div onClick={() => setShowAnaHist(false)}
@@ -5358,11 +5365,21 @@ function App() {
                   최근 {anaHist.length}건 · 이 기기에만 저장 · 누르면 다시 분석하지 않고 바로 열려요
                 </div>
               </div>
-              {anaHist.length > 6 && (
-                <input value={anaHistQ} onChange={(e) => setAnaHistQ(e.target.value)} placeholder="이름으로 찾기"
-                  style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", marginBottom: 12,
-                    background: C.bg, color: C.text, border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 13 }} />
-              )}
+              <div style={{ position: "relative", marginBottom: 6 }}>
+                <input value={anaHistQ} onChange={(e) => setAnaHistQ(e.target.value)}
+                  placeholder="이름·한글명·품종·지역으로 찾기 (예: 브루넬로, 샤르도네, 아일라)"
+                  style={{ width: "100%", boxSizing: "border-box", padding: "10px 34px 10px 12px",
+                    background: C.bg, color: C.text, border: `1px solid ${anaHistQ ? C.goldDim : C.line}`,
+                    borderRadius: 10, fontSize: 13 }} />
+                {anaHistQ && (
+                  <button onClick={() => setAnaHistQ("")} aria-label="검색어 지우기"
+                    style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
+                      background: "none", border: "none", color: C.sub, fontSize: 16, cursor: "pointer", padding: 4 }}>×</button>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: C.sub, marginBottom: 8, textAlign: "right" }}>
+                {anaHistQ ? `${list.length} / ${anaHist.length}건` : `${anaHist.length}건`}
+              </div>
               {list.length === 0 && (
                 <div style={{ fontSize: 13, color: C.sub, textAlign: "center", padding: "12px 0" }}>찾는 기록이 없어요</div>
               )}
@@ -5379,7 +5396,10 @@ function App() {
                       <span style={{ display: "block", fontSize: 11, color: C.sub, marginTop: 1 }}>{h.nameKo}</span>
                     )}
                     <span style={{ display: "block", fontSize: 10, color: C.goldDim, marginTop: 2 }}>
-                      {h.kind === "whisky" ? "WHISKY" : "WINE"} · {raterLabel(h.rater)} 기준 · {h.at ? new Date(h.at).toLocaleDateString("ko-KR") : ""}
+                      {h.kind === "whisky" ? "WHISKY" : "WINE"}
+                      {h.result && h.result.info && (h.result.info.region || h.result.info.caskRegion)
+                        ? ` · ${safeStr(h.result.info.region || h.result.info.caskRegion).split(",")[0]}` : ""}
+                      {` · ${raterLabel(h.rater)} 기준 · ${h.at ? new Date(h.at).toLocaleDateString("ko-KR") : ""}`}
                     </span>
                   </span>
                 </button>
