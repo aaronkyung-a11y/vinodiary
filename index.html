@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.49";
+const APP_VERSION = "v1.50";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -545,7 +545,7 @@ function matchVillageIn(regionKey, info, name) {
   return null;
 }
 
-async function api(payload) {
+async function apiSend(payload) {
   const url = getApiUrl();
   if (!url) throw new Error("API URL이 설정되지 않았습니다.");
   // 현재 프로필을 owner로 자동 주입(이미 지정된 경우 유지)
@@ -556,6 +556,107 @@ async function api(payload) {
     body: JSON.stringify(withOwner),
   });
   return parseApiResponse(res);
+}
+
+// ---------- 백그라운드 이어받기 ----------
+// reqId를 붙인 요청은 서버(Code.gs v1.50+)가 결과를 6시간 보관한다.
+// 앱이 뒤로 가거나 닫혀 응답을 못 받아도 같은 reqId로 결과만 다시 받아온다(재분석 없음).
+// 구버전 서버는 jobResult를 모르므로 그때는 같은 요청을 다시 보낸다.
+function waitVisible() {
+  return new Promise((resolve) => {
+    if (!document.hidden) return resolve();
+    const h = () => {
+      if (!document.hidden) { document.removeEventListener("visibilitychange", h); resolve(); }
+    };
+    document.addEventListener("visibilitychange", h);
+  });
+}
+async function jobResultOnce(reqId) {
+  try {
+    const r = await apiSend({ action: "jobResult", reqId });
+    if (r && r._status) return r;
+  } catch (e) {}
+  return { _status: "none" }; // 구버전 서버(unknown action) 또는 네트워크 오류
+}
+async function pollJob(reqId, maxMs) {
+  const until = Date.now() + (maxMs || 6 * 60 * 1000);
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 4000));
+    await waitVisible();
+    const st = await jobResultOnce(reqId);
+    if (st._status === "done") return st.data;
+    if (st._status !== "running") return null;
+  }
+  return null;
+}
+async function api(payload) {
+  const rid = payload && payload.reqId;
+  if (!rid) return apiSend(payload);
+  let wentHidden = document.hidden;
+  const onVis = () => { if (document.hidden) wentHidden = true; };
+  document.addEventListener("visibilitychange", onVis);
+  try {
+    let r;
+    try {
+      r = await apiSend(payload);
+    } catch (e) {
+      // 앱이 뒤로 간 사이 연결이 끊긴 경우만 이어받기(그 외 오류는 그대로 던짐)
+      if (!wentHidden && !document.hidden) throw e;
+      await waitVisible();
+      const st = await jobResultOnce(rid);
+      if (st._status === "done") r = st.data;
+      else if (st._status === "running") r = await pollJob(rid);
+      // 서버에 결과가 없으면 다시 보냄(신버전 서버는 같은 reqId 중복 실행 안 함)
+      if (r == null) r = await apiSend(payload);
+    }
+    if (r && r._pending) {
+      const d = await pollJob(rid);
+      if (d == null) throw new Error("서버 작업이 아직 끝나지 않았어요 — 잠시 후 다시 시도해 주세요");
+      r = d;
+    }
+    return r;
+  } finally {
+    document.removeEventListener("visibilitychange", onVis);
+  }
+}
+
+// ---------- 백그라운드 작업·저장 대기열(로컬) ----------
+const JOBS_LS = "vinodiary:jobs";        // 진행 중 작업 — 앱이 닫혀도 다음 실행 때 이어받기
+const OUTBOX_LS = "vinodiary:outbox";    // 서버 전송 대기 중인 저장
+const NOTIF_ASKED_LS = "vinodiary:notifAsked";
+// 페이지가 닫히는 중(새로고침·종료)에는 끊긴 요청을 '실패'로 처리하지 않는다 — 기록을 남겨 다음 실행 때 이어받기
+let VD_UNLOADING = false;
+window.addEventListener("pagehide", () => { VD_UNLOADING = true; });
+window.addEventListener("pageshow", () => { VD_UNLOADING = false; });
+function newReqId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function readLS(key, def) {
+  try { const v = JSON.parse(localStorage.getItem(key) || "null"); return v == null ? def : v; }
+  catch (e) { return def; }
+}
+function writeLS(key, v) {
+  try { localStorage.setItem(key, JSON.stringify(v)); return true; } catch (e) { return false; }
+}
+function shortName(n) { const t = String(n || "").trim(); return t.length > 22 ? t.slice(0, 21) + "…" : t; }
+// 오래 걸리는 작업을 처음 시작할 때 한 번만 알림 권한을 묻는다(거절해도 다시 묻지 않음)
+function askNotifyOnce() {
+  try {
+    if (!("Notification" in window) || Notification.permission !== "default") return;
+    if (localStorage.getItem(NOTIF_ASKED_LS)) return;
+    localStorage.setItem(NOTIF_ASKED_LS, "1");
+    const pr = Notification.requestPermission();
+    if (pr && pr.catch) pr.catch(() => {});
+  } catch (e) {}
+}
+// 앱이 뒤에 있을 때 작업이 끝나면 폰 알림(누르면 해당 탭으로)
+function notifyIfHidden(body, tab) {
+  try {
+    if (!document.hidden) return;
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    if (!navigator.serviceWorker) return;
+    navigator.serviceWorker.ready.then((reg) => reg.showNotification("Vino·Diary", {
+      body, tag: "vd-" + (tab || "job"), icon: "icon-192.png", badge: "icon-192.png", data: { tab },
+    })).catch(() => {});
+  } catch (e) {}
 }
 
 // Apps Script가 JSON 대신 HTML 오류 페이지를 반환하는 경우가 있다
@@ -775,6 +876,7 @@ function App() {
   const [showAnaHist, setShowAnaHist] = useState(false);
   const [anaHistQ, setAnaHistQ] = useState("");
   const [resultFromHist, setResultFromHist] = useState(null);            // 불러온 기록의 분석 시각
+  const candRef = useRef(null);                                         // 후보 목록 위치('보기' 이동용)
   const anaInputRef = useRef("");                                        // 사용자가 입력한 원문(기록 검색 키로 추가)
   const anaMetaRef = useRef(null);                                       // {rater, asked, kind} 현재 결과의 저장 키
   const [kindFilter, setKindFilter] = useState("all"); // all | wine | whisky | wishlist
@@ -839,9 +941,8 @@ function App() {
       info: null, infoUncertain: false,
       nameKo: p.nameKo || "",
     };
-    await savingApi({ action: "save", entry }, "위시리스트에 담음");
+    queueSave(entry, { doneMsg: "위시리스트에 담음" });
     setFoodWishDone((prev) => ({ ...prev, [p.name]: true }));
-    upsertLocal(entry);
   }
   const [profile, setProfile] = useState(null);     // 취향 분석 결과
   const [profileLoading, setProfileLoading] = useState(false);
@@ -1292,16 +1393,86 @@ function App() {
   }
 
   const toastTimerRef = useRef(null);
-  function showToast(msg, kind) {
-    setToast({ msg, kind: kind || "done" });
+  function showToast(msg, kind, action) {
+    setToast({ msg, kind: kind || "done", action: action || null });
     // 이전 자동닫힘 타이머 취소 — 안 하면 직전 완료 토스트의 타이머가
     // 새로 뜬 로딩 토스트("상세 분석 중…" 등)까지 지워버림
     if (toastTimerRef.current) { clearTimeout(toastTimerRef.current); toastTimerRef.current = null; }
     // 에러는 문구를 읽을 시간이 필요해 조금 더 오래 유지
     if (kind !== "loading") {
-      toastTimerRef.current = setTimeout(() => setToast(null), kind === "error" ? 4000 : 1800);
+      toastTimerRef.current = setTimeout(() => setToast(null), action ? 6000 : (kind === "error" ? 4000 : 1800));
     }
   }
+  // ---------- 백그라운드 작업 추적 ----------
+  // 분석·추천·페어링이 도는 동안 다른 탭으로 가도 되게: 하단 탭에 진행(링)·완료(점) 표시,
+  // 다른 탭에 있을 때 끝나면 '보기' 토스트, 앱이 뒤에 있으면 폰 알림.
+  const [jobs, setJobs] = useState([]);
+  const jobsRef = useRef([]);
+  const [tabBadge, setTabBadge] = useState({});
+  const tabRef = useRef(tab);
+  useEffect(() => {
+    tabRef.current = tab;
+    setTabBadge((b) => (b[tab] ? { ...b, [tab]: false } : b));
+  }, [tab]);
+  function setJobsBoth(next) { jobsRef.current = next; setJobs(next); }
+  // persist: {payload, ctx} — 주면 기기에 기록해 앱이 닫혀도 다음 실행 때 결과를 이어받는다
+  function jobStart(kind, label, tabId, persist) {
+    const id = newReqId();
+    setJobsBoth([...jobsRef.current, { id, kind, label, tab: tabId }]);
+    if (persist) {
+      const all = readLS(JOBS_LS, []).filter((j) => j.id !== id);
+      all.push({ id, kind, label, tab: tabId, at: Date.now(), payload: persist.payload, ctx: persist.ctx || {} });
+      writeLS(JOBS_LS, all.slice(-6));
+    }
+    askNotifyOnce();
+    return id;
+  }
+  // outcome: {ok, msg, scroll(ref)} 또는 null(조용히 종료). 두 번 불려도 한 번만 처리.
+  function jobEnd(id, outcome) {
+    if (VD_UNLOADING) return; // 닫히는 중 끊긴 요청 — 기기 기록 유지
+    const job = jobsRef.current.find((j) => j.id === id);
+    if (!job) return;
+    setJobsBoth(jobsRef.current.filter((j) => j.id !== id));
+    writeLS(JOBS_LS, readLS(JOBS_LS, []).filter((j) => j.id !== id));
+    if (!outcome) return;
+    if (tabRef.current !== job.tab) {
+      if (outcome.ok) setTabBadge((b) => ({ ...b, [job.tab]: true }));
+      showToast(outcome.msg, outcome.ok ? "done" : "error", { label: "보기", tab: job.tab, scroll: outcome.scroll });
+    }
+    notifyIfHidden(outcome.msg, job.tab);
+  }
+  function gotoJobTab(a) {
+    setToast(null);
+    setTab(a.tab);
+    if (a.scroll) setTimeout(() => {
+      try { a.scroll.current && a.scroll.current.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {}
+    }, 150);
+  }
+  // 알림을 눌러 들어오면 해당 탭으로 / 복귀·온라인 시 저장 대기열 전송
+  const flushRef = useRef(null);
+  useEffect(() => {
+    const onMsg = (ev) => { const d = (ev && ev.data) || {}; if (d.type === "vd-goto" && d.tab) setTab(d.tab); };
+    try { navigator.serviceWorker && navigator.serviceWorker.addEventListener("message", onMsg); } catch (e) {}
+    try {
+      const m = /#tab=(\w+)/.exec(location.hash || "");
+      if (m) { setTab(m[1]); history.replaceState(null, "", location.pathname + location.search); }
+    } catch (e) {}
+    const onBack = () => { if (!document.hidden && flushRef.current) flushRef.current(); };
+    window.addEventListener("online", onBack);
+    document.addEventListener("visibilitychange", onBack);
+    return () => {
+      try { navigator.serviceWorker && navigator.serviceWorker.removeEventListener("message", onMsg); } catch (e) {}
+      window.removeEventListener("online", onBack);
+      document.removeEventListener("visibilitychange", onBack);
+    };
+  }, []);
+  // 지난 실행에서 끝나지 못한 작업 이어받기
+  useEffect(() => {
+    if (!ready) return;
+    const t = setTimeout(() => { try { resumeJobs(); } catch (e) {} }, 400);
+    return () => clearTimeout(t);
+  }, [ready]);
+
   function saveName(name) {
     setUserName(name);
     try { localStorage.setItem(NAME_LS, name); } catch (e) {}
@@ -1704,6 +1875,138 @@ function App() {
     });
   }
 
+  // ---------- 저장 대기열(아웃박스) ----------
+  // 저장 버튼을 누르는 즉시 셀러에 반영하고, 상세 보강·사진 업로드·서버 저장은 뒤에서 처리.
+  // 중간에 앱이 닫히거나 연결이 끊겨도 기기에 남겨 두었다가 복귀·다음 동기화 때 다시 보낸다.
+  const outboxImgRef = useRef({});   // localStorage 용량 초과로 못 담은 사진(메모리 보관)
+  const flushingRef = useRef(false);
+  const flushAgainRef = useRef(false);
+  const [outboxCount, setOutboxCount] = useState(() => readLS(OUTBOX_LS, []).length);
+  const [flushing, setFlushing] = useState(false);
+  function outboxRead() {
+    return readLS(OUTBOX_LS, []).map((it) =>
+      it.imageInMem ? { ...it, imageData: outboxImgRef.current[it.id] || "" } : it);
+  }
+  function outboxWrite(list) {
+    if (!writeLS(OUTBOX_LS, list)) {
+      const slim = list.map((it) => {
+        if (!it.imageData) return it;
+        outboxImgRef.current[it.id] = it.imageData;
+        return { ...it, imageData: "", imageInMem: true };
+      });
+      writeLS(OUTBOX_LS, slim);
+    }
+    setOutboxCount(list.length);
+  }
+  function outboxHas(id) { return outboxRead().some((it) => String(it.id) === String(id)); }
+  function outboxPatch(id, patch) {
+    outboxWrite(outboxRead().map((it) => (String(it.id) === String(id) ? { ...it, ...patch } : it)));
+  }
+  function outboxRemove(id) {
+    delete outboxImgRef.current[id];
+    outboxWrite(outboxRead().filter((it) => String(it.id) !== String(id)));
+  }
+  // 대기 중 항목의 값 변경(재고·점수)은 대기열의 entry에 반영 → 저장 때 함께 전송. 대기 중이 아니면 false.
+  function outboxPatchEntry(id, patch) {
+    if (!outboxHas(id)) return false;
+    outboxWrite(outboxRead().map((it) =>
+      String(it.id) === String(id) ? { ...it, entry: { ...it.entry, ...patch } } : it));
+    return true;
+  }
+  // 뒤늦게 받은 상세를 저장할 entry에 병합(화면에서 만든 값 우선)
+  function mergeDetail(entry, d, mode) {
+    if (!d || d.error) return entry;
+    const e = { ...entry };
+    e.detail = e.detail || pickDetail(d);
+    e.axes = e.axes || d.axes || null;
+    e.subtype = e.subtype || d.subtype || "";
+    e.nameKo = e.nameKo || d.nameKo || "";
+    e.info = (d.info || e.info) ? { ...(d.info || {}), ...(e.info || {}) } : null;
+    if (d.infoUncertain && !entry.info) e.infoUncertain = true;
+    if (mode === "menu") {
+      if (d.resembles) e.resembles = safeStr(d.resembles);
+      if (d.reason) e.reason = d.reason;
+    }
+    if (mode === "rec") {
+      if (d.profile) e.reason = d.profile;
+      if (e.predictedScore == null && d.predictedScore != null) e.predictedScore = d.predictedScore;
+    }
+    return e;
+  }
+  // opts: {needDetail:{name,kind}, mode, imageData, doneMsg}
+  function queueSave(entry, opts) {
+    const o = opts || {};
+    const item = { id: entry.id, entry, owner: getProfile(), needDetail: o.needDetail || null,
+      mode: o.mode || "", imageData: o.imageData || "", at: Date.now(), tries: 0 };
+    outboxWrite([...outboxRead().filter((it) => String(it.id) !== String(entry.id)), item]);
+    upsertLocal({ ...entry, _pending: true });
+    if (o.doneMsg) showToast(o.doneMsg, "done");
+    flushOutbox();
+  }
+  async function flushOutbox() {
+    if (flushingRef.current) { flushAgainRef.current = true; return; }
+    if (!getApiUrl() || !outboxRead().length) return;
+    flushingRef.current = true;
+    setFlushing(true);
+    let firstFail = 0;
+    try {
+      for (const it of outboxRead()) {
+        try {
+          // 1) 상세 보강(없을 때만) 2) 사진 업로드 — 실패해도 저장은 진행
+          let d = null, imgUrl = "";
+          if (it.needDetail && !(it.entry && it.entry.detail)) {
+            const nd = it.needDetail;
+            try {
+              d = detailCacheRef.current[nd.name] || await api({ action: "detail", name: nd.name, kind: nd.kind });
+              if (d && !d.error) detailCacheRef.current[nd.name] = d; else d = null;
+            } catch (e) { d = null; }
+          }
+          if (it.imageData && !(it.entry && it.entry.image)) {
+            try {
+              const up = await api({ action: "uploadPhoto", imageData: it.imageData });
+              if (up && up.ok && up.url) imgUrl = up.url;
+            } catch (e) {}
+          }
+          // 그 사이 사용자가 바꾼 값(재고 등)을 잃지 않게 최신 대기열 항목 기준으로 병합
+          const cur = outboxRead().find((x) => String(x.id) === String(it.id));
+          if (!cur) continue; // 그 사이 삭제됨
+          let entry = cur.entry;
+          if (d) entry = mergeDetail(entry, d, cur.mode);
+          if (imgUrl) entry = { ...entry, image: imgUrl };
+          outboxPatch(cur.id, { entry, needDetail: d ? null : cur.needDetail, imageData: imgUrl ? "" : cur.imageData });
+          if (d || imgUrl) upsertLocal({ ...entry, _pending: true });
+          const r = await api({ action: "save", entry, owner: cur.owner || undefined, reqId: "save-" + cur.id });
+          if (r && r.error) throw new Error(r.error);
+          const after = outboxRead().find((x) => String(x.id) === String(cur.id));
+          outboxRemove(cur.id);
+          if (!after) {
+            // 전송 중에 삭제한 경우 → 서버에서도 지움
+            api({ action: "delete", id: cur.id }).catch(() => {});
+            continue;
+          }
+          // after.entry = 보낸 entry + 전송 중 사용자가 바꾼 값
+          upsertLocal({ ...after.entry, _pending: false });
+          const ae = after.entry;
+          if ((Number(ae.stock) || 0) !== (Number(entry.stock) || 0))
+            api({ action: "setStock", id: cur.id, stock: Number(ae.stock) || 0 }).catch(() => {});
+          if (ae.status === "tasted" && entry.status !== "tasted")
+            api({ action: "taste", id: cur.id, myScore: ae.myScore, date: ae.date }).catch(() => {});
+          else if (ae.myScore !== entry.myScore && ae.myScore != null)
+            api({ action: "setScore", id: cur.id, myScore: ae.myScore }).catch(() => {});
+        } catch (e) {
+          if (!it.tries) firstFail++;
+          outboxPatch(it.id, { tries: (it.tries || 0) + 1 });
+        }
+      }
+      if (firstFail) showToast(`저장 ${firstFail}건 전송 대기 — 연결되면 자동으로 다시 보내요`, "error");
+    } finally {
+      flushingRef.current = false;
+      setFlushing(false);
+      if (flushAgainRef.current) { flushAgainRef.current = false; setTimeout(() => flushRef.current && flushRef.current(), 0); }
+    }
+  }
+  flushRef.current = flushOutbox;
+
   // 타임아웃+재시도 fetch. AbortController로 각 시도를 timeoutMs 후 중단하고 재시도.
   // 콜드스타트로 첫 요청이 느려도, 그 요청이 서버를 깨우므로 다음 시도가 빨라진다.
   async function fetchWithRetry(url, opts) {
@@ -1746,7 +2049,15 @@ function App() {
         const _total = Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - _t0);
         console.log("[sync] total=" + _total + "ms server=" + (r && r._serverMs != null ? r._serverMs : "?") + "ms entries=" + ((r && r.entries) ? r.entries.length : 0));
       } catch (e) {}
-      const list = r.entries || [];
+      const list0 = r.entries || [];
+      // 저장 대기열 정리: 서버에 이미 있는 항목은 응답만 못 받은 것 → 완료 처리(중복 저장 방지),
+      // 아직 없는 항목은 화면에 '전송 대기'로 계속 보이게 병합
+      const ob = outboxRead();
+      const serverIds = new Set(list0.map((x) => String(x.id)));
+      ob.filter((it) => serverIds.has(String(it.id))).forEach((it) => outboxRemove(it.id));
+      const pend = ob.filter((it) => !serverIds.has(String(it.id)) && (!it.owner || it.owner === prof))
+        .map((it) => ({ ...it.entry, _pending: true }));
+      const list = pend.length ? [...pend, ...list0] : list0;
       setEntries(list);
       writeEntriesCache(prof, list); // 다음 실행 즉시 표시용 캐시 갱신
       // 통합 사람 목록(전체 프로필 후보) — 폴백: 데이터의 scores 키
@@ -1781,6 +2092,8 @@ function App() {
     } finally {
       setSyncing(false);
       setSyncTry("");
+      // 동기화가 끝나면 남은 저장 대기열 전송(서버 목록과 대조한 뒤라 중복 위험 없음)
+      setTimeout(() => flushRef.current && flushRef.current(), 300);
     }
   }
 
@@ -1840,8 +2153,10 @@ function App() {
     setResult(null);
     setResultFromHist(null);
     setCandidates(null);
+    const jid = jobStart("cand", "후보 찾는 중", "add");
+    let outcome = null;
     try {
-      const r = await api({ action: "analyzeCandidates", text, imageData });
+      const r = await api({ action: "analyzeCandidates", text, imageData, reqId: jid });
       if (!r || r.error) throw new Error((r && r.error) || "빈 응답");
       const list = (r.candidates || []).filter((c) => c && c.name);
       if (r.truncated && list.length) {
@@ -1849,17 +2164,23 @@ function App() {
       }
       if (list.length === 0) {
         setError("후보를 찾지 못했어요. 이름을 더 구체적으로 적어 보세요.");
+        outcome = { ok: false, msg: "후보를 찾지 못했어요" };
       } else if (list.length === 1) {
-        // 후보가 하나면 바로 상세 분석
+        // 후보가 하나면 바로 상세 분석(분석 작업으로 이어짐)
+        jobEnd(jid, null);
+        setCandLoading(false);
         await analyzeOne(list[0].name, list[0].kind);
       } else {
         setCandidates(list);
+        outcome = { ok: true, msg: `후보 ${list.length}개 — 골라 주세요`, scroll: candRef };
       }
     } catch (e) {
       setError(String(e && e.message ? e.message : "분석에 실패했어요. 다시 시도해 주세요."));
       console.error(e);
+      outcome = { ok: false, msg: "분석 실패" };
     } finally {
       setCandLoading(false);
+      jobEnd(jid, outcome);
     }
   }
 
@@ -1892,6 +2213,26 @@ function App() {
         return;
       }
     }
+    const isCommon = analyzeForMulti.includes("common");
+    const mainRater = isCommon ? "common" : (analyzeForMulti[0] || "me");
+    const payload = { action: "analyze", text: name + (kind ? " (" + kind + ")" : ""), forWhom: mainRater };
+    const ctx = { name, kind, mainRater, isCommon, multi: analyzeForMulti.slice(), input: anaInputRef.current };
+    anaInputRef.current = "";
+    const jid = jobStart("analyze", "분석 · " + shortName(name), "add", { payload, ctx });
+    beginAnalyzeUI();
+    try {
+      const r = await api({ ...payload, reqId: jid });
+      if (!r || r.error) throw new Error((r && r.error) || "빈 응답");
+      await applyAnalyzeResult(r, ctx, jid);
+    } catch (e) {
+      setError(String(e && e.message ? e.message : "분석에 실패했어요. 다시 시도해 주세요."));
+      console.error(e);
+      jobEnd(jid, { ok: false, msg: "분석 실패 · " + shortName(name) });
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+  function beginAnalyzeUI() {
     setResultFromHist(null);
     setError(null);
     setAnalyzing(true);
@@ -1901,92 +2242,127 @@ function App() {
     setCellarMatch(null);
     setCandidates(null);
     setRaterScores(null);
-    try {
-      // analyzeForMulti에서 메인 평가자 + 비교 대상 파생 (메뉴판식 선택 통일)
-      const isCommon = analyzeForMulti.includes("common");
-      const mainRater = isCommon ? "common" : (analyzeForMulti[0] || "me");
-      const r = await api({ action: "analyze", text: name + (kind ? " (" + kind + ")" : ""), forWhom: mainRater });
-      if (r.error) throw new Error(r.error);
-      anaMetaRef.current = { rater: mainRater, asked: name, input: anaInputRef.current, kind: r.kind || kind, at: Date.now() };
-      anaInputRef.current = "";
-      setResult(r);
-      // 분석 완료: 결과 위치로 스크롤 + 완료 알림
-      showToast("분석 완료", "done");
-      // 가격이 비어 오면 별도 추정으로 보완 — 화면에 가격이 항상 뜨도록
-      if (!(r.info && r.info.price)) {
-        (async () => {
-          try {
-            const pr = await api({ action: "estimatePrice", name: r.name || name, kind: r.kind || kind });
-            if (pr && pr.price) {
-              setResult((prev) => (prev && prev.name === r.name)
-                ? { ...prev, info: { ...(prev.info || {}), price: pr.price, priceEst: true } }
-                : prev);
-            }
-          } catch (e3) { /* 보완 실패는 분석 결과에 영향 없음 */ }
-        })();
-      }
-      // 상세(프로파일·당신에게·페어링·서빙)가 안 왔으면 지금 미리 받아둔다.
-      // 저장 시점에 "상세 분석 중…"으로 기다리게 하지 않기 위함 — 결과가 뜨는 동안
-      // 백그라운드로 받아 화면에 채우고 캐시해 두면 저장은 즉시 끝난다.
-      if (!(r.profile || r.forYou || r.pairing || r.serving)) {
-        (async () => {
-          try {
-            const d = await api({ action: "detail", name: r.name || name, kind: r.kind || kind });
-            if (d && !d.error) {
-              detailCacheRef.current[r.name] = d;
-              setResult((prev) => (prev && prev.name === r.name)
-                ? { ...prev,
-                    profile: prev.profile || d.profile, forYou: prev.forYou || d.forYou,
-                    pairing: prev.pairing || d.pairing, serving: prev.serving || d.serving,
-                    axes: prev.axes || d.axes || null,
-                    info: { ...(d.info || {}), ...(prev.info || {}) } }
-                : prev);
-            }
-          } catch (e4) { /* 실패해도 저장 시 재시도됨 */ }
-        })();
-      }
-      setTimeout(() => { try { resultRef.current && resultRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {} }, 80);
-      // 이미 셀러/위시에 있는 술인지 확인
-      try { const m = findInCellar(r.name); setCellarMatch(m || null); } catch (e) { setCellarMatch(null); }
-      if (isCommon) {
-        // "다 같이": 본인(me) + 친구 전원이 각각 이 술을 몇 점일지 나란히. common(가상 평가자)은 표시하지 않음.
-        const everyone = ["me"].concat(raters);
+  }
+  // 분석 응답을 화면에 적용(정상 완료·앱 재실행 후 이어받기 공통)
+  async function applyAnalyzeResult(r, ctx, jid) {
+    const { name, kind, mainRater, isCommon } = ctx;
+    const multi = ctx.multi || [mainRater];
+    anaMetaRef.current = { rater: mainRater, asked: name, input: ctx.input || "", kind: r.kind || kind, at: Date.now() };
+    setResult(r);
+    // 분석 완료: 결과 위치로 스크롤 + 완료 알림(다른 탭이면 '보기' 토스트·앱 밖이면 폰 알림)
+    showToast("분석 완료", "done");
+    jobEnd(jid, { ok: true, msg: "분석 완료 · " + shortName(r.name || name), scroll: resultRef });
+    // 가격이 비어 오면 별도 추정으로 보완 — 화면에 가격이 항상 뜨도록
+    if (!(r.info && r.info.price)) {
+      (async () => {
+        try {
+          const pr = await api({ action: "estimatePrice", name: r.name || name, kind: r.kind || kind });
+          if (pr && pr.price) {
+            setResult((prev) => (prev && prev.name === r.name)
+              ? { ...prev, info: { ...(prev.info || {}), price: pr.price, priceEst: true } }
+              : prev);
+          }
+        } catch (e3) { /* 보완 실패는 분석 결과에 영향 없음 */ }
+      })();
+    }
+    // 상세(프로파일·당신에게·페어링·서빙)가 안 왔으면 지금 미리 받아둔다.
+    if (!(r.profile || r.forYou || r.pairing || r.serving)) {
+      (async () => {
+        try {
+          const d = await api({ action: "detail", name: r.name || name, kind: r.kind || kind });
+          if (d && !d.error) {
+            detailCacheRef.current[r.name] = d;
+            setResult((prev) => (prev && prev.name === r.name)
+              ? { ...prev,
+                  profile: prev.profile || d.profile, forYou: prev.forYou || d.forYou,
+                  pairing: prev.pairing || d.pairing, serving: prev.serving || d.serving,
+                  axes: prev.axes || d.axes || null,
+                  info: { ...(d.info || {}), ...(prev.info || {}) } }
+              : prev);
+          }
+        } catch (e4) { /* 실패해도 저장 시 재시도됨 */ }
+      })();
+    }
+    setTimeout(() => { try { resultRef.current && resultRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {} }, 80);
+    // 이미 셀러/위시에 있는 술인지 확인
+    try { const m = findInCellar(r.name); setCellarMatch(m || null); } catch (e) { setCellarMatch(null); }
+    if (isCommon) {
+      // "다 같이": 본인(me) + 친구 전원이 각각 이 술을 몇 점일지 나란히. common(가상 평가자)은 표시하지 않음.
+      const everyone = ["me"].concat(raters);
+      try {
+        const sr = await api({ action: "scoreForRaters",
+          name: r.name || name, kind: r.kind || kind, raters: everyone });
+        const scores = (sr && sr.scores) ? sr.scores : [];
+        setRaterScores(scores);
+      } catch (e2) { /* 비교 실패는 메인 결과에 영향 없음 */ }
+    } else {
+      // 개별 선택: 첫 선택이 메인, 나머지는 비교. 본인 별칭 중복 제외.
+      const mainIsSelf = isSelfKey(mainRater);
+      const others = multi.filter((x) => {
+        if (x === "common") return false;
+        if (x === mainRater) return false;
+        if (mainIsSelf && isSelfKey(x)) return false;
+        return true;
+      });
+      if (others.length > 0) {
         try {
           const sr = await api({ action: "scoreForRaters",
-            name: r.name || name, kind: r.kind || kind, raters: everyone });
-          const scores = (sr && sr.scores) ? sr.scores : [];
-          setRaterScores(scores);
+            name: r.name || name, kind: r.kind || kind, raters: others });
+          const otherScores = (sr && sr.scores) ? sr.scores : [];
+          // 메인 평가자(위 분석 점수)를 비교 맨 앞에 직접 추가
+          const mainEntry = {
+            rater: mainRater,
+            score: r.predictedScore,
+            why: r.resembles || "",
+            confidence: r.confidence || "medium",
+          };
+          setRaterScores([mainEntry, ...otherScores]);
         } catch (e2) { /* 비교 실패는 메인 결과에 영향 없음 */ }
-      } else {
-        // 개별 선택: 첫 선택이 메인, 나머지는 비교. 본인 별칭 중복 제외.
-        const mainIsSelf = isSelfKey(mainRater);
-        const others = analyzeForMulti.filter((x) => {
-          if (x === "common") return false;
-          if (x === mainRater) return false;
-          if (mainIsSelf && isSelfKey(x)) return false;
-          return true;
-        });
-        if (others.length > 0) {
-          try {
-            const sr = await api({ action: "scoreForRaters",
-              name: r.name || name, kind: r.kind || kind, raters: others });
-            const otherScores = (sr && sr.scores) ? sr.scores : [];
-            // 메인 평가자(위 분석 점수)를 비교 맨 앞에 직접 추가
-            const mainEntry = {
-              rater: mainRater,
-              score: r.predictedScore,
-              why: r.resembles || "",
-              confidence: r.confidence || "medium",
-            };
-            setRaterScores([mainEntry, ...otherScores]);
-          } catch (e2) { /* 비교 실패는 메인 결과에 영향 없음 */ }
-        }
       }
+    }
+  }
+
+  // 지난 실행에서 끝나지 못한 작업(앱 종료·새로고침) 이어받기.
+  // 신버전 서버는 보관해 둔 결과를 바로 돌려주고, 구버전이면 같은 요청을 다시 보낸다(사진 작업 제외).
+  function resumeJobs() {
+    const now = Date.now();
+    const live = readLS(JOBS_LS, []).filter((j) => now - (j.at || 0) < 20 * 60 * 1000);
+    writeLS(JOBS_LS, live);
+    live.forEach((j) => { if (!jobsRef.current.some((x) => x.id === j.id)) resumeOne(j); });
+  }
+  async function resumeOne(j) {
+    setJobsBoth([...jobsRef.current, { id: j.id, kind: j.kind, label: j.label, tab: j.tab }]);
+    const ctx = j.ctx || {};
+    if (j.kind === "analyze") { setAnalyzeMode("single"); if (ctx.multi) setAnalyzeForMulti(ctx.multi); beginAnalyzeUI(); }
+    if (j.kind === "menu") { setAnalyzeMode("menu"); setMenuLoading(true); }
+    if (j.kind === "rec") { setRecFor(ctx.forWhom || "me"); setRecCondition(ctx.cond || ""); setRecLoading(true); }
+    if (j.kind === "pair") { setFoodText(ctx.food || ""); setPairOnlyStock(!!ctx.onlyStock); setFoodLoading(true); }
+    showToast("이전 작업 이어받는 중 · " + j.label, "loading");
+    let r = null;
+    try {
+      const st = await jobResultOnce(j.id);
+      if (st._status === "done") r = st.data;
+      else if (st._status === "running") r = await pollJob(j.id);
+      else if (j.payload && !(j.payload.imgCount > 0)) {
+        const pl = { ...j.payload }; delete pl.imgCount;
+        r = await api({ ...pl, reqId: j.id });
+      }
+    } catch (e) { r = null; }
+    try {
+      if (!r || r.error) throw new Error("끊김");
+      if (j.kind === "analyze") await applyAnalyzeResult(r, ctx, j.id);
+      else if (j.kind === "menu") applyMenuResult(r, j.id);
+      else if (j.kind === "rec") applyRecs(r, ctx, j.id);
+      else if (j.kind === "pair") applyPairResult(r, ctx, j.id);
+      else jobEnd(j.id, null);
     } catch (e) {
-      setError(String(e && e.message ? e.message : "분석에 실패했어요. 다시 시도해 주세요."));
-      console.error(e);
+      jobEnd(j.id, null);
+      showToast("앱이 닫혀 '" + j.label + "' 작업이 끊겼어요 — 다시 실행해 주세요", "error");
     } finally {
-      setAnalyzing(false);
+      if (j.kind === "analyze") setAnalyzing(false);
+      if (j.kind === "menu") setMenuLoading(false);
+      if (j.kind === "rec") setRecLoading(false);
+      if (j.kind === "pair") setFoodLoading(false);
     }
   }
 
@@ -2000,25 +2376,34 @@ function App() {
     setMenuLoading(true);
     setMenuResult(null);
     setMenuDone({});
+    const fw = menuFor.includes("common") ? "common"
+      : (menuFor.length === 1 ? menuFor[0] : menuFor);
+    // 사진은 기기에 남기지 않음(용량) — 이어받기는 서버 보관 결과로만, 텍스트만이면 재전송 가능
+    const jid = jobStart("menu", "메뉴판 분석", "add",
+      { payload: { action: "analyzeMenu", text, forWhom: fw, imgCount: imgs.length }, ctx: {} });
     try {
-      const fw = menuFor.includes("common") ? "common"
-        : (menuFor.length === 1 ? menuFor[0] : menuFor);
-      const r = await api({ action: "analyzeMenu", text, images: imgs, forWhom: fw });
-      if (r.error) throw new Error(r.error);
-      if (!r.items || r.items.length === 0) {
-        setError("사진에서 술을 읽지 못했어요. 더 선명하게 찍거나 리스트를 텍스트로 붙여넣어 보세요.");
-        return;
-      }
-      setMenuResult(r);
-      // 메뉴판 분석 완료: 결과 위치로 스크롤 + 완료 알림
-      showToast(r.items.length + "종 분석 완료", "done");
-      setTimeout(() => { try { menuResultRef.current && menuResultRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {} }, 80);
+      const r = await api({ action: "analyzeMenu", text, images: imgs, forWhom: fw, reqId: jid });
+      applyMenuResult(r, jid);
     } catch (e) {
       setError("메뉴판 분석 실패: " + (e.message || "다시 시도해 주세요") + (imageData ? " (사진이 크면 일부만 보이게 잘라 다시 시도)" : ""));
       console.error(e);
+      jobEnd(jid, { ok: false, msg: "메뉴판 분석 실패" });
     } finally {
       setMenuLoading(false);
     }
+  }
+  function applyMenuResult(r, jid) {
+    if (!r || r.error) throw new Error((r && r.error) || "빈 응답");
+    if (!r.items || r.items.length === 0) {
+      setError("사진에서 술을 읽지 못했어요. 더 선명하게 찍거나 리스트를 텍스트로 붙여넣어 보세요.");
+      jobEnd(jid, { ok: false, msg: "메뉴판에서 술을 읽지 못했어요" });
+      return;
+    }
+    setMenuResult(r);
+    // 메뉴판 분석 완료: 결과 위치로 스크롤 + 완료 알림
+    showToast(r.items.length + "종 분석 완료", "done");
+    jobEnd(jid, { ok: true, msg: "메뉴판 " + r.items.length + "종 분석 완료", scroll: menuResultRef });
+    setTimeout(() => { try { menuResultRef.current && menuResultRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {} }, 80);
   }
 
   // 값 안에 AI가 넣어온 "추정" 표기를 제거(표시 시 UI가 한 번만 붙임).
@@ -2138,21 +2523,10 @@ function App() {
   }
 
   // 메뉴판 결과의 한 항목을 위시리스트/셀러로 저장
-  async function saveMenuItem(item, status) {
-    // 상세를 안 열어봤으면 저장 전에 자동으로 불러와 함께 저장(실패해도 저장은 진행)
-    let d = menuDetail[item.name] && !menuDetail[item.name].error ? menuDetail[item.name]
+  function saveMenuItem(item, status) {
+    // 상세를 안 열어봤으면 저장은 즉시 하고, 상세는 뒤에서 받아 함께 저장
+    const d = menuDetail[item.name] && !menuDetail[item.name].error ? menuDetail[item.name]
       : detailCacheRef.current[item.name] || null;
-    if (!d) {
-      showToast("상세 분석 중…", "loading");
-      try {
-        const r = await api({ action: "detail", name: item.name, kind: item.kind });
-        d = r && !r.error ? r : null;
-        if (d) {
-          detailCacheRef.current[item.name] = d;
-          setMenuDetail((p) => ({ ...p, [item.name]: { ...d, _open: p[item.name] ? p[item.name]._open : false } }));
-        }
-      } catch (e) { d = null; }
-    }
     const entry = {
       id: Date.now() + Math.floor(Math.random() * 1000),
       date: kstNow(),
@@ -2172,34 +2546,17 @@ function App() {
       })(),
       detail: pickDetail(d),
     };
-    await savingApi({ action: "save", entry }, status === "tasted" ? "셀러에 저장됨" : "위시리스트에 담음");
+    queueSave(entry, { needDetail: d ? null : { name: item.name, kind: item.kind }, mode: "menu",
+      doneMsg: status === "tasted" ? "셀러에 저장됨" : "위시리스트에 담음" });
     setMenuDone((prev) => ({ ...prev, [item.name]: status || "wishlist" }));
-    upsertLocal(entry);
   }
 
-  async function saveResult(score, status) {
+  function saveResult(score, status) {
     const isMe = analyzeMain === "me" || analyzeMain === "나";
-    // 사진이 있으면 Drive 업로드 후 URL 확보
-    let imageUrl = "";
-    if (imageData) {
-      showToast("사진 올리는 중…", "loading");
-      try {
-        const up = await api({ action: "uploadPhoto", imageData });
-        if (up && up.ok && up.url) imageUrl = up.url;
-      } catch (e) { /* 사진 실패해도 기록은 저장 */ }
-    }
     // v1.33: analyze가 상세(profile/forYou/pairing/serving)까지 한 번에 반환 —
-    // 이미 있으면 detail을 다시 부르지 않는다(중복 호출·표현 불일치 제거).
-    let det = (result.profile || result.forYou || result.pairing || result.serving)
+    // 이미 있으면 detail을 다시 부르지 않는다. 없으면 저장은 즉시, 상세·사진 업로드는 뒤에서.
+    const det = (result.profile || result.forYou || result.pairing || result.serving)
       ? result : (detailCacheRef.current[result.name] || null);
-    if (!det) {
-      showToast("상세 분석 중…", "loading");
-      try {
-        det = await api({ action: "detail", name: result.name, kind: result.kind });
-        if (det && !det.error) detailCacheRef.current[result.name] = det;
-        else det = null;
-      } catch (e) { det = null; }
-    }
     const entry = {
       id: Date.now(),
       date: kstNow(),
@@ -2211,7 +2568,7 @@ function App() {
       reason: result.reason,
       myScore: isMe ? (score ?? null) : null,
       scores: (!isMe && score != null) ? { [analyzeMain]: score } : {},
-      image: imageUrl,
+      image: "",
       status: status || "tasted",
       axes: result.axes || (det && det.axes) || null,
       subtype: result.subtype || "",
@@ -2223,28 +2580,17 @@ function App() {
       companions: companions.trim(),
       note: note.trim(),
     };
-    await savingApi({ action: "save", entry }, status === "wishlist" ? "위시리스트에 담음" : "저장됨");
-    upsertLocal(entry);
+    queueSave(entry, { needDetail: det ? null : { name: result.name, kind: result.kind }, mode: "result",
+      imageData: imageData || "", doneMsg: status === "wishlist" ? "위시리스트에 담음" : "저장됨" });
     // 결과 화면 유지 — 저장 후에도 계속 볼 수 있게. 새 분석 시작 시 리셋됨.
     setResultSaved({ status: entry.status, stock: entry.stock });
   }
 
   // 추천 술을 셀러/위시리스트로 저장
-  async function saveFromRec(rec, myScore, status) {
-    // 상세를 안 열어봤으면 저장 전에 자동으로 불러와 함께 저장(실패해도 저장은 진행)
-    let d = recDetail[rec.name] && !recDetail[rec.name].error ? recDetail[rec.name]
+  function saveFromRec(rec, myScore, status) {
+    const found = recDetail[rec.name] && !recDetail[rec.name].error ? recDetail[rec.name]
       : detailCacheRef.current[rec.name] || null;
-    if (!d) {
-      showToast("상세 분석 중…", "loading");
-      try {
-        const r = await api({ action: "detail", name: rec.name, kind: rec.kind });
-        d = r && !r.error ? r : {};
-        if (d && d.profile) {
-          detailCacheRef.current[rec.name] = d;
-          setRecDetail((p) => ({ ...p, [rec.name]: { ...d, _open: p[rec.name] ? p[rec.name]._open : false } }));
-        }
-      } catch (e) { d = {}; }
-    }
+    const d = found || {};
     const entry = {
       id: Date.now(),
       date: kstNow(),
@@ -2261,16 +2607,17 @@ function App() {
       nameKo: rec.nameKo || d.nameKo || "",
       info: d.info || null,
       infoUncertain: d.infoUncertain || false,
-      detail: pickDetail(d),
+      detail: pickDetail(found),
     };
-    await savingApi({ action: "save", entry }, status === "wishlist" ? "위시리스트에 담음" : "셀러에 저장됨");
+    queueSave(entry, { needDetail: found ? null : { name: rec.name, kind: rec.kind }, mode: "rec",
+      doneMsg: status === "wishlist" ? "위시리스트에 담음" : "셀러에 저장됨" });
     // 이 추천 카드를 '처리됨'으로 표시
     setRecDone((prev) => ({ ...prev, [rec.name]: { status: status || "tasted", score: myScore ?? null } }));
-    upsertLocal(entry);
   }
 
   async function setScore(id, score) {
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, myScore: score } : e)));
+    if (outboxPatchEntry(id, { myScore: score })) { showToast("점수 저장됨", "done"); return; }
     await savingApi({ action: "setScore", id, myScore: score }, "점수 저장됨");
   }
 
@@ -2279,6 +2626,7 @@ function App() {
   function adjustStock(e, delta) {
     const next = Math.max(0, (Number(e.stock) || 0) + delta);
     upsertLocal({ ...e, stock: next });
+    if (outboxPatchEntry(e.id, { stock: next })) return; // 아직 전송 대기 중이면 저장 때 함께 반영
     api({ action: "setStock", id: e.id, stock: next }).then((r) => {
       if (r && r.error) throw new Error(r.error);
     }).catch(() => showToast("재고 저장 실패 — 네트워크 확인", "error"));
@@ -2394,44 +2742,56 @@ function App() {
     }
     setFoodLoading(true);
     setFoodResult(null);
+    const payload = { action: "pairFood", food: foodText.trim(), onlyStock: pairOnlyStock,
+      recent: pairOnlyStock ? recentPickRef.current.slice(0, 6) : [] };
+    const ctx = { food: foodText.trim(), onlyStock: pairOnlyStock };
+    const jid = jobStart("pair", "페어링 · " + shortName(foodText.trim()), "recommend", { payload, ctx });
     try {
-      const r = await api({ action: "pairFood", food: foodText.trim(), onlyStock: pairOnlyStock,
-        recent: pairOnlyStock ? recentPickRef.current.slice(0, 6) : [] });
-      if (!r || r.error) throw new Error((r && r.error) || "빈 응답");
-      // 세 필드가 모두 비면 조용히 아무것도 안 뜨던 문제 — 안내를 채워 표시
-      const nC = (r.fromCellar || []).length, nS = (r.suggestions || []).length;
-      if (!nC && !nS && !r.tip) {
-        r.tip = "추천을 만들지 못했어요. 음식 이름을 더 구체적으로 적거나 다시 시도해 주세요.";
-      }
-      setFoodResult(r);
-      setFoodWishDone({});
-      // 방금 추천된 병을 기억 — 다음 조회에서 가급적 다른 병이 나오도록
-      if (pairOnlyStock && r.fromCellar && r.fromCellar.length) {
-        const picked = r.fromCellar.map((x) => safeStr(x.name)).filter(Boolean);
-        recentPickRef.current = picked.concat(
-          recentPickRef.current.filter((n) => picked.indexOf(n) < 0)).slice(0, 6);
-      }
+      const r = await api({ ...payload, reqId: jid });
+      applyPairResult(r, ctx, jid);
     } catch (e) {
       showToast(String(e && e.message ? e.message : "페어링 추천에 실패했어요"), "error");
+      jobEnd(jid, { ok: false, msg: "페어링 추천 실패" });
     } finally {
       setFoodLoading(false);
     }
+  }
+  function applyPairResult(r, ctx, jid) {
+    if (!r || r.error) throw new Error((r && r.error) || "빈 응답");
+    // 세 필드가 모두 비면 조용히 아무것도 안 뜨던 문제 — 안내를 채워 표시
+    const nC = (r.fromCellar || []).length, nS = (r.suggestions || []).length;
+    if (!nC && !nS && !r.tip) {
+      r.tip = "추천을 만들지 못했어요. 음식 이름을 더 구체적으로 적거나 다시 시도해 주세요.";
+    }
+    setFoodResult(r);
+    setFoodWishDone({});
+    // 방금 추천된 병을 기억 — 다음 조회에서 가급적 다른 병이 나오도록
+    if (ctx.onlyStock && r.fromCellar && r.fromCellar.length) {
+      const picked = r.fromCellar.map((x) => safeStr(x.name)).filter(Boolean);
+      recentPickRef.current = picked.concat(
+        recentPickRef.current.filter((n) => picked.indexOf(n) < 0)).slice(0, 6);
+    }
+    jobEnd(jid, { ok: true, msg: "페어링 추천 완료 · " + shortName(ctx.food) });
   }
 
   async function loadProfile() {
     setProfileLoading(true);
     setProfile(null);
+    const jid = jobStart("taste", "취향 분석", "recommend");
+    let ok = false;
     try {
-      const r = await api({ action: "tasteProfile", rater: recFor === "common" ? "me" : recFor });
+      const r = await api({ action: "tasteProfile", rater: recFor === "common" ? "me" : recFor, reqId: jid });
       if (!r || r.error) {
         setProfile({ _failed: true, note: (r && r.error) ? String(r.error) : "분석 응답을 받지 못했어요." });
       } else {
         setProfile(r);
+        ok = true;
       }
     } catch (e) {
       setProfile({ _failed: true, note: "분석 호출에 실패했어요. 백엔드 재배포를 확인해 주세요." });
     } finally {
       setProfileLoading(false);
+      jobEnd(jid, ok ? { ok: true, msg: "취향 분석 완료" } : { ok: false, msg: "취향 분석 실패" });
     }
   }
 
@@ -2613,6 +2973,7 @@ function App() {
   // 위시리스트 항목을 마셔봄 → 평가 + tasted 전환
   async function tasteItem(id, score) {
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, myScore: score, status: "tasted" } : e)));
+    if (outboxPatchEntry(id, { myScore: score, status: "tasted", date: kstNow() })) { showToast("점수 저장됨", "done"); return; }
     await savingApi({ action: "taste", id, myScore: score, date: kstNow() }, "점수 저장됨");
   }
 
@@ -2623,6 +2984,7 @@ function App() {
     // 화면에서 즉시 숨기고, 되돌리기 토스트 표시. 일정 시간 뒤 실제 삭제.
     setEntries((prev) => prev.filter((e) => e.id !== id));
     const timer = setTimeout(() => {
+      if (outboxHas(id)) outboxRemove(id); // 전송 대기 중이던 항목은 대기열에서 빼기(전송 중이었다면 저장 직후 삭제됨)
       api({ action: "delete", id });
       setPendingDelete(null);
     }, 5000);
@@ -2702,24 +3064,32 @@ function App() {
 
   async function loadRecs() {
     setRecLoading(true); setRecs(null); setProfile(null); setRecDone({});
+    const cond = recCondition.trim();
+    const payload = { action: "recommend", forWhom: recFor, condition: cond || undefined };
+    const ctx = { forWhom: recFor, cond };
+    const jid = jobStart("rec", "추천", "recommend", { payload, ctx });
     try {
-      const cond = recCondition.trim();
-      const r = await api({ action: "recommend", forWhom: recFor, condition: cond || undefined });
-      const list = Array.isArray(r) ? r : [];
-      setRecs(list);
-      // 지난 추천으로 남겨 나중에 다시 볼 수 있게(저장하지 않고 넘긴 술도 찾기 위함)
-      if (list.length) {
-        setRecHist(pushRecHist({
-          at: kstNow(), forWhom: recFor, condition: cond,
-          items: list.map((x) => ({ name: x.name, nameKo: x.nameKo || "", kind: x.kind,
-            why: safeStr(x.why || ""), predictedScore: x.predictedScore ?? null })),
-        }));
-      }
+      const r = await api({ ...payload, reqId: jid });
+      applyRecs(r, ctx, jid);
     } catch (e) {
       setRecs([]);
+      jobEnd(jid, { ok: false, msg: "추천을 받지 못했어요" });
     } finally {
       setRecLoading(false);
     }
+  }
+  function applyRecs(r, ctx, jid) {
+    const list = Array.isArray(r) ? r : [];
+    setRecs(list);
+    // 지난 추천으로 남겨 나중에 다시 볼 수 있게(저장하지 않고 넘긴 술도 찾기 위함)
+    if (list.length) {
+      setRecHist(pushRecHist({
+        at: kstNow(), forWhom: ctx.forWhom, condition: ctx.cond || "",
+        items: list.map((x) => ({ name: x.name, nameKo: x.nameKo || "", kind: x.kind,
+          why: safeStr(x.why || ""), predictedScore: x.predictedScore ?? null })),
+      }));
+    }
+    jobEnd(jid, list.length ? { ok: true, msg: "추천 " + list.length + "개 도착" } : { ok: false, msg: "추천을 받지 못했어요" });
   }
 
   const [recMoreLoading, setRecMoreLoading] = useState(false);
@@ -3433,7 +3803,7 @@ function App() {
 
             {/* 단일 분석: 후보 목록(여럿일 때) */}
             {analyzeMode === "single" && candidates && (
-              <div style={{ marginTop: 18 }}>
+              <div ref={candRef} style={{ marginTop: 18 }}>
                 <div style={{ fontSize: 12, color: C.goldDim, marginBottom: 10, letterSpacing: 1 }}>
                   어떤 술인가요? 골라 주세요
                 </div>
@@ -4041,7 +4411,7 @@ function App() {
                       <span style={{ width: 7, height: 7, borderRadius: "50%",
                         background: e.kind === "whisky" ? C.whisky : C.wine }} />
                       <span style={{ fontSize: 10, color: C.sub, letterSpacing: 1 }}>
-                        {e.kind === "whisky" ? "WHISKY" : "WINE"}{isWish ? " · 위시리스트" : ""}{(Number(e.stock) || 0) > 0 ? ` · 🍾 보유 ${e.stock}병` : ""}{e.image ? " · 📷" : ""} · {e.date}
+                        {e.kind === "whisky" ? "WHISKY" : "WINE"}{isWish ? " · 위시리스트" : ""}{(Number(e.stock) || 0) > 0 ? ` · 🍾 보유 ${e.stock}병` : ""}{e.image ? " · 📷" : ""} · {e.date}{e._pending ? " · ⟳ 전송 대기" : ""}
                         {isWish && isOldWish(e) && (
                           <span style={{ color: C.goldDim, marginLeft: 4 }}>· ⏳ 오래됨</span>
                         )}
@@ -5653,6 +6023,11 @@ function App() {
           )}
           {toast.kind === "done" && <span>✓</span>}
           {toast.msg}
+          {toast.action && (
+            <button onClick={() => gotoJobTab(toast.action)}
+              style={{ marginLeft: 2, padding: "3px 11px", background: C.gold, color: "#1B160C", border: "none",
+                borderRadius: 12, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{toast.action.label}</button>
+          )}
         </div>
       )}
       <style>{`@keyframes vd-spin { to { transform: rotate(360deg); } }`}</style>
@@ -5665,7 +6040,20 @@ function App() {
               style={{ flex: 1, padding: "14px 0", background: "none", border: "none",
                 color: tab === id ? C.gold : C.sub, fontSize: 12, cursor: "pointer",
                 display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
-              <span style={{ fontSize: 16 }}>{icon}</span>
+              <span style={{ fontSize: 16, position: "relative" }}>
+                {icon}
+                {(jobs.some((j) => j.tab === id) || (id === "cellar" && flushing)) ? (
+                  <span title="진행 중" style={{ position: "absolute", top: -3, right: -11, width: 7, height: 7,
+                    border: `2px solid ${C.goldDim}`, borderTopColor: C.gold, borderRadius: "50%",
+                    animation: "vd-spin 0.7s linear infinite" }} />
+                ) : (tabBadge[id] && tab !== id) ? (
+                  <span title="새 결과" style={{ position: "absolute", top: -1, right: -8, width: 7, height: 7,
+                    background: C.gold, borderRadius: "50%" }} />
+                ) : (id === "cellar" && outboxCount > 0) ? (
+                  <span title="전송 대기" style={{ position: "absolute", top: -1, right: -8, width: 6, height: 6,
+                    border: `1.5px solid ${C.gold}`, borderRadius: "50%" }} />
+                ) : null}
+              </span>
               {label}
             </button>
           )

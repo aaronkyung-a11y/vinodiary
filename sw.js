@@ -1,5 +1,5 @@
 // Vino·Diary service worker
-const CACHE = "vinodiary-v1";
+const CACHE = "vinodiary-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -40,5 +40,22 @@ self.addEventListener("fetch", (e) => {
         return res;
       })
       .catch(() => caches.match(e.request))
+  );
+});
+
+// 작업 완료 알림을 누르면: 열린 앱이 있으면 그 창으로 가서 해당 탭 열기, 없으면 새로 열기
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const tab = (e.notification.data && e.notification.data.tab) || "";
+  e.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ("focus" in c) {
+          try { c.postMessage({ type: "vd-goto", tab }); } catch (err) {}
+          return c.focus();
+        }
+      }
+      return self.clients.openWindow("./" + (tab ? "#tab=" + tab : ""));
+    })
   );
 });
