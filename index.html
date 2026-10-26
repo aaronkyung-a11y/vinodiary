@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.50";
+const APP_VERSION = "v1.51";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -589,6 +589,19 @@ async function pollJob(reqId, maxMs) {
   }
   return null;
 }
+// 이어받기 진행 상황을 화면(App 토스트)에 알리는 이벤트
+function vdStatus(msg, kind) {
+  try { window.dispatchEvent(new CustomEvent("vd-status", { detail: { msg, kind: kind || "loading" } })); } catch (e) {}
+}
+// 서버가 결과 보관(jobResult)을 지원하는지: true(v1.50+) / false(구버전) / null(모름)
+let VD_SERVER_KEEPS = null;
+async function detectServer() {
+  try {
+    const r = await apiSend({ action: "jobResult", reqId: "probe" });
+    VD_SERVER_KEEPS = !!(r && r._status);
+  } catch (e) { /* 네트워크 오류면 판단 보류 */ }
+  return VD_SERVER_KEEPS;
+}
 async function api(payload) {
   const rid = payload && payload.reqId;
   if (!rid) return apiSend(payload);
@@ -603,11 +616,20 @@ async function api(payload) {
       // 앱이 뒤로 간 사이 연결이 끊긴 경우만 이어받기(그 외 오류는 그대로 던짐)
       if (!wentHidden && !document.hidden) throw e;
       await waitVisible();
+      vdStatus("앱이 뒤에 있는 사이 연결이 끊겼어요 — 서버 결과 확인 중…");
       const st = await jobResultOnce(rid);
       if (st._status === "done") r = st.data;
-      else if (st._status === "running") r = await pollJob(rid);
+      else if (st._status === "running") {
+        vdStatus("서버는 계속 처리 중이에요 — 끝나면 바로 받아와요");
+        r = await pollJob(rid);
+      }
       // 서버에 결과가 없으면 다시 보냄(신버전 서버는 같은 reqId 중복 실행 안 함)
-      if (r == null) r = await apiSend(payload);
+      if (r == null) {
+        vdStatus(VD_SERVER_KEEPS === false
+          ? "서버가 구버전이라 처음부터 다시 요청해요 (Code.gs 재배포 필요)"
+          : "결과를 못 받아 다시 요청하는 중…");
+        r = await apiSend(payload);
+      }
     }
     if (r && r._pending) {
       const d = await pollJob(rid);
@@ -1419,6 +1441,10 @@ function App() {
   function jobStart(kind, label, tabId, persist) {
     const id = newReqId();
     setJobsBoth([...jobsRef.current, { id, kind, label, tab: tabId }]);
+    if (VD_SERVER_KEEPS === false && !oldServerWarnedRef.current) {
+      oldServerWarnedRef.current = true;
+      setTimeout(() => showToast("서버(Code.gs)가 구버전 — 앱을 나갔다 오면 작업이 처음부터 다시 돌 수 있어요", "error"), 50);
+    }
     if (persist) {
       const all = readLS(JOBS_LS, []).filter((j) => j.id !== id);
       all.push({ id, kind, label, tab: tabId, at: Date.now(), payload: persist.payload, ctx: persist.ctx || {} });
@@ -1466,6 +1492,19 @@ function App() {
       document.removeEventListener("visibilitychange", onBack);
     };
   }, []);
+  // 이어받기 진행 상황 토스트
+  useEffect(() => {
+    const h = (ev) => { const d = (ev && ev.detail) || {}; if (d.msg) showToast(d.msg, d.kind || "loading"); };
+    window.addEventListener("vd-status", h);
+    return () => window.removeEventListener("vd-status", h);
+  }, []);
+  // 서버가 결과 보관을 지원하는지 확인(구버전이면 앱을 나갔다 오면 처음부터 다시 돌아감)
+  const [serverKeeps, setServerKeeps] = useState(null);
+  const oldServerWarnedRef = useRef(false);
+  useEffect(() => {
+    if (!ready) return;
+    detectServer().then((v) => setServerKeeps(v)).catch(() => {});
+  }, [ready]);
   // 지난 실행에서 끝나지 못한 작업 이어받기
   useEffect(() => {
     if (!ready) return;
@@ -2345,6 +2384,7 @@ function App() {
       else if (st._status === "running") r = await pollJob(j.id);
       else if (j.payload && !(j.payload.imgCount > 0)) {
         const pl = { ...j.payload }; delete pl.imgCount;
+        if (VD_SERVER_KEEPS !== true) showToast("앱이 닫혀 결과가 없어 처음부터 다시 요청해요 · " + j.label, "loading");
         r = await api({ ...pl, reqId: j.id });
       }
     } catch (e) { r = null; }
