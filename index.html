@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.51";
+const APP_VERSION = "v1.52";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -606,6 +606,7 @@ async function api(payload) {
   const rid = payload && payload.reqId;
   if (!rid) return apiSend(payload);
   let wentHidden = document.hidden;
+  let recovering = false;
   const onVis = () => { if (document.hidden) wentHidden = true; };
   document.addEventListener("visibilitychange", onVis);
   try {
@@ -617,6 +618,7 @@ async function api(payload) {
       if (!wentHidden && !document.hidden) throw e;
       await waitVisible();
       vdStatus("앱이 뒤에 있는 사이 연결이 끊겼어요 — 서버 결과 확인 중…");
+      recovering = true;
       const st = await jobResultOnce(rid);
       if (st._status === "done") r = st.data;
       else if (st._status === "running") {
@@ -632,11 +634,17 @@ async function api(payload) {
       }
     }
     if (r && r._pending) {
+      recovering = true;
       const d = await pollJob(rid);
       if (d == null) throw new Error("서버 작업이 아직 끝나지 않았어요 — 잠시 후 다시 시도해 주세요");
       r = d;
     }
+    // 이어받기 안내 토스트는 '진행 중'이라 스스로 안 사라짐 → 결과를 받았으면 완료로 바꿔 닫는다
+    if (recovering) vdStatus("결과를 받아왔어요", "done");
     return r;
+  } catch (err) {
+    if (recovering) vdStatus("결과를 받지 못했어요 — 다시 시도해 주세요", "error");
+    throw err;
   } finally {
     document.removeEventListener("visibilitychange", onVis);
   }
@@ -2390,6 +2398,7 @@ function App() {
     } catch (e) { r = null; }
     try {
       if (!r || r.error) throw new Error("끊김");
+      showToast("결과를 받아왔어요 · " + j.label, "done"); // 적용 단계의 완료·'보기' 토스트가 있으면 그게 덮음
       if (j.kind === "analyze") await applyAnalyzeResult(r, ctx, j.id);
       else if (j.kind === "menu") applyMenuResult(r, j.id);
       else if (j.kind === "rec") applyRecs(r, ctx, j.id);
