@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.52";
+const APP_VERSION = "v1.53";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -145,6 +145,57 @@ function pushAnaHist(entry) {
     catch (e) { next = next.slice(0, Math.max(1, Math.floor(next.length / 2))); } // 용량 초과 시 오래된 것부터 버림
   }
   return next;
+}
+
+// ---------- 평론가 점수(v1.53) ----------
+// 서버가 웹 검색으로 출처를 확인한 점수만 돌려준다(AI 기억으로 만든 점수는 표시하지 않음).
+const CRITIC_LS = "vinodiary:critics";
+const CRITIC_TTL = 30 * 24 * 3600 * 1000;
+const CRITIC_NAMES = {
+  RP: "Robert Parker Wine Advocate", JS: "James Suckling", WS: "Wine Spectator", V: "Vinous",
+  JD: "Jeb Dunnuck", D: "Decanter", WE: "Wine Enthusiast", JR: "Jancis Robinson(20점 만점)",
+  WhA: "Whisky Advocate", JM: "Jim Murray Whisky Bible",
+};
+function criticKey(n) { return String(n || "").toLowerCase().replace(/[^a-z0-9가-힣]/g, ""); }
+function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return String(u || "").slice(0, 40); } }
+function CriticBadges({ c }) {
+  const [open, setOpen] = useState(false);
+  if (!c || c.unsupported || c.error) return null;
+  if (c.loading) return <div style={{ fontSize: 11, color: C.sub, marginTop: 6 }}>평론가 점수 확인 중…</div>;
+  const list = c.scores || [];
+  if (!list.length) return <div style={{ fontSize: 11, color: C.sub, marginTop: 6 }}>확인된 평론가 점수 없음</div>;
+  return (
+    <div style={{ marginTop: 8 }} onClick={(ev) => ev.stopPropagation()}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center" }}>
+        {list.map((sc, i) => (
+          <span key={i} title={CRITIC_NAMES[sc.critic] || sc.critic}
+            style={{ fontSize: 11, padding: "2px 7px", borderRadius: 10, border: `1px solid ${C.goldDim}`,
+              color: C.gold, whiteSpace: "nowrap" }}>
+            <b>{sc.critic}</b> {sc.score}
+            {sc.sameVintage === false && sc.vintage
+              ? <span style={{ color: C.sub }}> · {"'" + String(sc.vintage).slice(-2)}</span> : null}
+          </span>
+        ))}
+        <button onClick={() => setOpen(!open)}
+          style={{ fontSize: 10, color: C.sub, background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}>
+          {open ? "출처 접기" : "출처"}
+        </button>
+      </div>
+      {open && (
+        <div style={{ marginTop: 5, fontSize: 11, color: C.sub, lineHeight: 1.7 }}>
+          {list.map((sc, i) => (
+            <div key={i}>
+              {(CRITIC_NAMES[sc.critic] || sc.critic) + " " + sc.score}
+              {sc.vintage ? ` (${sc.vintage}${sc.sameVintage === false ? " · 다른 빈티지" : ""})` : ""}
+              {" — "}
+              <a href={sc.url} target="_blank" rel="noopener noreferrer" style={{ color: C.goldDim }}>{hostOf(sc.url)}</a>
+            </div>
+          ))}
+          <div style={{ marginTop: 2 }}>웹 검색으로 출처가 확인된 점수만 표시해요</div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function RegionMapSvg({ info, name }) {
@@ -908,7 +959,14 @@ function App() {
   const [resultFromHist, setResultFromHist] = useState(null);            // 불러온 기록의 분석 시각
   const candRef = useRef(null);                                         // 후보 목록 위치('보기' 이동용)
   const anaInputRef = useRef("");                                        // 사용자가 입력한 원문(기록 검색 키로 추가)
-  const anaMetaRef = useRef(null);                                       // {rater, asked, kind} 현재 결과의 저장 키
+  const anaMetaRef = useRef(null);
+  // 평론가 점수: 이름키 → {loading} | {scores, at} | {error} | {unsupported}. 확인된 점수는 기기에 30일 보관.
+  const [critics, setCritics] = useState(() => {
+    const all = readLS(CRITIC_LS, {}), now = Date.now(), out = {};
+    Object.keys(all).forEach((k) => { if (all[k] && now - (all[k].at || 0) < CRITIC_TTL) out[k] = all[k]; });
+    return out;
+  });
+  const criticsRef = useRef(critics);                                       // {rater, asked, kind} 현재 결과의 저장 키
   const [kindFilter, setKindFilter] = useState("all"); // all | wine | whisky | wishlist
   const [expandedIds, setExpandedIds] = useState(() => new Set()); // 펼쳐진 카드 id들(다중)
   // 카드 펼침 토글: 열 때 해당 카드 상단이 보이도록 스크롤(제목부터)
@@ -2232,6 +2290,61 @@ function App() {
   }
 
   // 후보 하나를 골라 상세 분석
+  function patchCritics(patch) {
+    const next = { ...criticsRef.current, ...patch };
+    criticsRef.current = next;
+    setCritics(next);
+    const keep = {};
+    Object.keys(next).forEach((k) => { if (next[k] && next[k].scores) keep[k] = next[k]; });
+    writeLS(CRITIC_LS, keep);
+  }
+  // items: [{name, kind}] — 아직 모르는 술만 2개씩 묶어 서버에 조회(웹 검색은 느려서 병렬·백그라운드)
+  async function fetchCritics(items) {
+    const need = [];
+    (items || []).forEach((it) => {
+      const k = it && criticKey(it.name);
+      if (k && !criticsRef.current[k] && !need.some((x) => criticKey(x.name) === k)) need.push(it);
+    });
+    if (!need.length) return;
+    const loading = {};
+    need.forEach((it) => { loading[criticKey(it.name)] = { loading: true }; });
+    patchCritics(loading);
+    const chunks = [];
+    for (let i = 0; i < need.length; i += 2) chunks.push(need.slice(i, i + 2));
+    await Promise.all(chunks.map(async (ch) => {
+      const patch = {};
+      try {
+        const r = await api({ action: "criticScores", items: ch.map((x) => ({ name: x.name, kind: x.kind || "" })) });
+        if (!r || r.error) throw new Error((r && r.error) || "빈 응답");
+        ch.forEach((x) => {
+          const got = (r.results || {})[x.name];
+          patch[criticKey(x.name)] = (!got || got.failed) ? { error: true } : { scores: got.scores || [], at: Date.now() };
+        });
+      } catch (e) {
+        const unsupported = /unknown action/i.test(String(e && e.message));
+        ch.forEach((x) => { patch[criticKey(x.name)] = unsupported ? { unsupported: true } : { error: true }; });
+      }
+      patchCritics(patch);
+      // 분석 결과에도 붙여 둔다 → 지난 분석 기록·저장 시 함께 남음
+      setResult((prev) => {
+        if (!prev) return prev;
+        const v = patch[criticKey(prev.name)];
+        return v && v.scores ? { ...prev, critics: v.scores } : prev;
+      });
+    }));
+  }
+  function criticsFor(name, fallback) {
+    const c = critics[criticKey(name)];
+    if (c) return c;
+    return fallback && fallback.length ? { scores: fallback } : null;
+  }
+  // 저장할 info에 확인된 평론가 점수 포함
+  function infoWithCritics(info, name, fallback) {
+    const c = criticsRef.current[criticKey(name)];
+    const cs = (c && c.scores && c.scores.length) ? c.scores : (fallback && fallback.length ? fallback : null);
+    return cs ? { ...(info || {}), critics: cs } : info;
+  }
+
   // 기록에서 결과 복원(API 호출 없음)
   function restoreAnalysis(h) {
     anaMetaRef.current = null; // 복원 직후 effect가 at을 갱신하지 않게
@@ -2241,6 +2354,11 @@ function App() {
     setResult(h.result);
     setResultFromHist(h.at || null);
     if (h.result && h.result.name) {
+      if (h.result.critics && h.result.critics.length) {
+        if (!criticsRef.current[criticKey(h.result.name)]) patchCritics({ [criticKey(h.result.name)]: { scores: h.result.critics, at: h.at || Date.now() } });
+      } else {
+        fetchCritics([{ name: h.result.name, kind: h.result.kind }]);
+      }
       if (h.result.profile || h.result.forYou || h.result.pairing || h.result.serving)
         detailCacheRef.current[h.result.name] = detailCacheRef.current[h.result.name] || h.result;
       try { const m = findInCellar(h.result.name); setCellarMatch(m || null); } catch (e) { setCellarMatch(null); }
@@ -2296,6 +2414,7 @@ function App() {
     const multi = ctx.multi || [mainRater];
     anaMetaRef.current = { rater: mainRater, asked: name, input: ctx.input || "", kind: r.kind || kind, at: Date.now() };
     setResult(r);
+    fetchCritics([{ name: r.name || name, kind: r.kind || kind }]);
     // 분석 완료: 결과 위치로 스크롤 + 완료 알림(다른 탭이면 '보기' 토스트·앱 밖이면 폰 알림)
     showToast("분석 완료", "done");
     jobEnd(jid, { ok: true, msg: "분석 완료 · " + shortName(r.name || name), scroll: resultRef });
@@ -2622,7 +2741,7 @@ function App() {
       axes: result.axes || (det && det.axes) || null,
       subtype: result.subtype || "",
       nameKo: result.nameKo || "",
-      info: result.info || (det && det.info) || null,
+      info: infoWithCritics(result.info || (det && det.info) || null, result.name, result.critics),
       infoUncertain: result.infoUncertain || false,
       detail: pickDetail(det),
       stock: Number(stockOnSave) || 0,
@@ -2654,7 +2773,7 @@ function App() {
       axes: d.axes || null,
       subtype: d.subtype || rec.subtype || "",
       nameKo: rec.nameKo || d.nameKo || "",
-      info: d.info || null,
+      info: infoWithCritics(d.info || null, rec.name),
       infoUncertain: d.infoUncertain || false,
       detail: pickDetail(found),
     };
@@ -3130,6 +3249,7 @@ function App() {
   function applyRecs(r, ctx, jid) {
     const list = Array.isArray(r) ? r : [];
     setRecs(list);
+    fetchCritics(list.map((x) => ({ name: x.name, kind: x.kind })));
     // 지난 추천으로 남겨 나중에 다시 볼 수 있게(저장하지 않고 넘긴 술도 찾기 위함)
     if (list.length) {
       setRecHist(pushRecHist({
@@ -3153,6 +3273,7 @@ function App() {
         const have = new Set(recs.map((x) => x.name));
         const fresh = r.filter((x) => !have.has(x.name));
         setRecs((prev) => [...prev, ...fresh]);
+        fetchCritics(fresh.map((x) => ({ name: x.name, kind: x.kind })));
       }
     } catch (e) {
       setError("더 불러오지 못했어요.");
@@ -4068,6 +4189,7 @@ function App() {
                     {result.nameKo && result.nameKo !== result.name && (
                       <div style={{ fontSize: 12, color: C.sub, marginTop: 1 }}>{result.nameKo}</div>
                     )}
+                    <CriticBadges c={criticsFor(result.name, result.critics)} />
                   </div>
                 </div>
                 <div style={{ marginTop: 14, fontSize: 13, color: C.sub, lineHeight: 1.5 }}>
@@ -5151,6 +5273,7 @@ function App() {
                     )}
                   </div>
                   <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{r.why}</div>
+                  <CriticBadges c={criticsFor(r.name)} />
                   {r.predictedScore != null && (
                     <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>예측 점수는 추정값입니다</div>
                   )}
