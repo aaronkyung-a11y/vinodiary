@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.53";
+const APP_VERSION = "v1.54";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -963,7 +963,11 @@ function App() {
   // 평론가 점수: 이름키 → {loading} | {scores, at} | {error} | {unsupported}. 확인된 점수는 기기에 30일 보관.
   const [critics, setCritics] = useState(() => {
     const all = readLS(CRITIC_LS, {}), now = Date.now(), out = {};
-    Object.keys(all).forEach((k) => { if (all[k] && now - (all[k].at || 0) < CRITIC_TTL) out[k] = all[k]; });
+    // 찾은 점수는 계속 보관, '없음' 결과만 30일 뒤 다시 확인(그사이 새 평가가 나올 수 있음)
+    Object.keys(all).forEach((k) => {
+      const v = all[k];
+      if (v && ((v.scores && v.scores.length) || now - (v.at || 0) < CRITIC_TTL)) out[k] = v;
+    });
     return out;
   });
   const criticsRef = useRef(critics);                                       // {rater, asked, kind} 현재 결과의 저장 키
