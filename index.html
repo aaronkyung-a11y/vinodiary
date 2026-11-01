@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.54";
+const APP_VERSION = "v1.55";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -195,6 +195,22 @@ function CriticBadges({ c }) {
         </div>
       )}
     </div>
+  );
+}
+
+// 병 사진: 판매점·생산자 페이지의 대표 사진. 누르면 그 페이지로. 못 불러오면 조용히 숨김.
+function BottleThumb({ c, h }) {
+  const [bad, setBad] = useState(false);
+  const src = c && c.image;
+  if (!src || bad) return null;
+  return (
+    <a href={c.imagePage || src} target="_blank" rel="noopener noreferrer" title="사진 출처 페이지 열기"
+      onClick={(ev) => ev.stopPropagation()}
+      style={{ flexShrink: 0, width: Math.round(h * 0.78), height: h, borderRadius: 8, background: "#fff",
+        display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+      <img src={src} alt="" referrerPolicy="no-referrer" loading="lazy" onError={() => setBad(true)}
+        style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+    </a>
   );
 }
 
@@ -966,7 +982,7 @@ function App() {
     // 찾은 점수는 계속 보관, '없음' 결과만 30일 뒤 다시 확인(그사이 새 평가가 나올 수 있음)
     Object.keys(all).forEach((k) => {
       const v = all[k];
-      if (v && ((v.scores && v.scores.length) || now - (v.at || 0) < CRITIC_TTL)) out[k] = v;
+      if (v && ((v.scores && v.scores.length) || v.image || now - (v.at || 0) < CRITIC_TTL)) out[k] = v;
     });
     return out;
   });
@@ -2299,7 +2315,10 @@ function App() {
     criticsRef.current = next;
     setCritics(next);
     const keep = {};
-    Object.keys(next).forEach((k) => { if (next[k] && next[k].scores) keep[k] = next[k]; });
+    Object.keys(next).forEach((k) => {
+      const v = next[k];
+      if (v && v.scores) { const { refreshing, ...rest } = v; keep[k] = rest; }
+    });
     writeLS(CRITIC_LS, keep);
   }
   // items: [{name, kind}] — 아직 모르는 술만 2개씩 묶어 서버에 조회(웹 검색은 느려서 병렬·백그라운드)
@@ -2307,11 +2326,16 @@ function App() {
     const need = [];
     (items || []).forEach((it) => {
       const k = it && criticKey(it.name);
-      if (k && !criticsRef.current[k] && !need.some((x) => criticKey(x.name) === k)) need.push(it);
+      const cur = k && criticsRef.current[k];
+      const stale = cur && cur.scores && !cur.imgChecked && !cur.refreshing;
+      if (k && (!cur || stale) && !need.some((x) => criticKey(x.name) === k)) need.push(it);
     });
     if (!need.length) return;
     const loading = {};
-    need.forEach((it) => { loading[criticKey(it.name)] = { loading: true }; });
+    need.forEach((it) => {
+      const k = criticKey(it.name), cur = criticsRef.current[k];
+      loading[k] = cur && cur.scores ? { ...cur, refreshing: true } : { loading: true };
+    });
     patchCritics(loading);
     const chunks = [];
     for (let i = 0; i < need.length; i += 2) chunks.push(need.slice(i, i + 2));
@@ -2322,31 +2346,46 @@ function App() {
         if (!r || r.error) throw new Error((r && r.error) || "빈 응답");
         ch.forEach((x) => {
           const got = (r.results || {})[x.name];
-          patch[criticKey(x.name)] = (!got || got.failed) ? { error: true } : { scores: got.scores || [], at: Date.now() };
+          const k = criticKey(x.name), cur = criticsRef.current[k];
+          if (!got || got.failed) {
+            patch[k] = cur && cur.scores ? { ...cur, refreshing: false } : { error: true };
+          } else {
+            patch[k] = { scores: got.scores || [], image: got.image || "", imagePage: got.imagePage || "",
+              imgChecked: true, at: Date.now() };
+          }
         });
       } catch (e) {
         const unsupported = /unknown action/i.test(String(e && e.message));
-        ch.forEach((x) => { patch[criticKey(x.name)] = unsupported ? { unsupported: true } : { error: true }; });
+        ch.forEach((x) => {
+          const k = criticKey(x.name), cur = criticsRef.current[k];
+          patch[k] = cur && cur.scores ? { ...cur, refreshing: false } : (unsupported ? { unsupported: true } : { error: true });
+        });
       }
       patchCritics(patch);
       // 분석 결과에도 붙여 둔다 → 지난 분석 기록·저장 시 함께 남음
       setResult((prev) => {
         if (!prev) return prev;
         const v = patch[criticKey(prev.name)];
-        return v && v.scores ? { ...prev, critics: v.scores } : prev;
+        if (!v || !v.scores) return prev;
+        return { ...prev, critics: v.scores,
+          bottle: v.imgChecked ? { image: v.image || "", page: v.imagePage || "" } : prev.bottle };
       });
     }));
   }
-  function criticsFor(name, fallback) {
+  function criticsFor(name, fallback, bottle) {
     const c = critics[criticKey(name)];
-    if (c) return c;
-    return fallback && fallback.length ? { scores: fallback } : null;
+    if (c && !c.loading) return c;
+    if ((fallback && fallback.length) || (bottle && bottle.image))
+      return { scores: fallback || [], image: bottle && bottle.image, imagePage: bottle && bottle.page };
+    return c || null;
   }
   // 저장할 info에 확인된 평론가 점수 포함
   function infoWithCritics(info, name, fallback) {
     const c = criticsRef.current[criticKey(name)];
     const cs = (c && c.scores && c.scores.length) ? c.scores : (fallback && fallback.length ? fallback : null);
-    return cs ? { ...(info || {}), critics: cs } : info;
+    let out = cs ? { ...(info || {}), critics: cs } : info;
+    if (c && c.image) out = { ...(out || {}), bottle: { image: c.image, page: c.imagePage || "" } };
+    return out;
   }
 
   // 기록에서 결과 복원(API 호출 없음)
@@ -2358,11 +2397,12 @@ function App() {
     setResult(h.result);
     setResultFromHist(h.at || null);
     if (h.result && h.result.name) {
-      if (h.result.critics && h.result.critics.length) {
-        if (!criticsRef.current[criticKey(h.result.name)]) patchCritics({ [criticKey(h.result.name)]: { scores: h.result.critics, at: h.at || Date.now() } });
-      } else {
-        fetchCritics([{ name: h.result.name, kind: h.result.kind }]);
+      if (!criticsRef.current[criticKey(h.result.name)] && ((h.result.critics && h.result.critics.length) || h.result.bottle)) {
+        patchCritics({ [criticKey(h.result.name)]: { scores: h.result.critics || [],
+          image: (h.result.bottle && h.result.bottle.image) || "", imagePage: (h.result.bottle && h.result.bottle.page) || "",
+          imgChecked: !!h.result.bottle, at: h.at || Date.now() } });
       }
+      fetchCritics([{ name: h.result.name, kind: h.result.kind }]);
       if (h.result.profile || h.result.forYou || h.result.pairing || h.result.serving)
         detailCacheRef.current[h.result.name] = detailCacheRef.current[h.result.name] || h.result;
       try { const m = findInCellar(h.result.name); setCellarMatch(m || null); } catch (e) { setCellarMatch(null); }
@@ -4193,8 +4233,9 @@ function App() {
                     {result.nameKo && result.nameKo !== result.name && (
                       <div style={{ fontSize: 12, color: C.sub, marginTop: 1 }}>{result.nameKo}</div>
                     )}
-                    <CriticBadges c={criticsFor(result.name, result.critics)} />
+                    <CriticBadges c={criticsFor(result.name, result.critics, result.bottle)} />
                   </div>
+                  <BottleThumb c={criticsFor(result.name, result.critics, result.bottle)} h={96} />
                 </div>
                 <div style={{ marginTop: 14, fontSize: 13, color: C.sub, lineHeight: 1.5 }}>
                   <b style={{ color: C.gold }}>닮은 것</b> · {safeStr(result.resembles)}
@@ -5275,6 +5316,7 @@ function App() {
                     {r.nameKo && r.nameKo !== r.name && (
                       <div style={{ fontSize: 12, color: C.sub, marginTop: 1 }}>{r.nameKo}</div>
                     )}
+                    <div style={{ marginLeft: "auto" }}><BottleThumb c={criticsFor(r.name)} h={64} /></div>
                   </div>
                   <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{r.why}</div>
                   <CriticBadges c={criticsFor(r.name)} />
