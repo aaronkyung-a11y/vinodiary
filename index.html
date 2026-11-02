@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.60";
+const APP_VERSION = "v1.61";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -6239,65 +6239,73 @@ function App() {
         const line = (en) => {
           const lp = listPair[en.id] || {};
           const d = lp.data;
-          // 같은 술 여러 기록 중 사진이 있는 기록을 대표로
+          // 같은 술 여러 기록 중 사진·점수가 있는 기록을 대표로
           const photoSrc = photoOf(en);
+          const critSrc = [en].concat(en._members || []).find((m) => m.info && m.info.critics && m.info.critics.length) || photoSrc;
           return (
-          <div key={en.id} style={{ marginBottom: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
-            {anyPhoto && (
-              <div style={{ width: 60, flexShrink: 0 }}><BottleThumb c={cellarCritics(photoSrc)} h={84} w={60} /></div>
-            )}
-            <div style={{ flex: 1, minWidth: 0 }}>
-            <div onClick={() => loadListPairing(en)}
-              style={{ display: "flex", alignItems: "baseline", gap: 8, cursor: "pointer" }}>
+          <div key={en.id} style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+              {/* 왼쪽: 이름·한글명·평론가 점수·마심/입고 */}
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: "Georgia, serif", fontSize: 15,
-                  color: lp.open ? C.gold : C.text }}>
-                  {en.name}
-                  <span style={{ color: C.goldDim, fontSize: 12, marginLeft: 6 }}>×{en.stock}</span>
-                  {(() => {
-                    // 내 점수가 있으면 그것을, 없으면 예측 점수를 '추정'으로 표시
-                    const mine = en.myScore != null ? en.myScore : null;
-                    const pred = (mine == null && en.predictedScore != null) ? en.predictedScore : null;
-                    if (mine == null && pred == null) return null;
-                    return (
-                      <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 700,
-                        color: mine != null ? C.gold : C.sub, fontFamily: "Georgia, serif" }}>
-                        {mine != null ? mine : pred}
-                        <span style={{ fontSize: 9, fontWeight: 400, marginLeft: 2, color: C.sub }}>
-                          {mine != null ? "" : "추정"}
+                <div onClick={() => loadListPairing(en)} style={{ cursor: "pointer" }}>
+                  <div style={{ fontFamily: "Georgia, serif", fontSize: 15,
+                    color: lp.open ? C.gold : C.text }}>
+                    {en.name}
+                    <span style={{ color: C.goldDim, fontSize: 12, marginLeft: 6 }}>×{en.stock}</span>
+                    {(() => {
+                      // 내 점수가 있으면 그것을, 없으면 예측 점수를 '추정'으로 표시
+                      const mine = en.myScore != null ? en.myScore : null;
+                      const pred = (mine == null && en.predictedScore != null) ? en.predictedScore : null;
+                      if (mine == null && pred == null) return null;
+                      return (
+                        <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 700,
+                          color: mine != null ? C.gold : C.sub, fontFamily: "Georgia, serif" }}>
+                          {mine != null ? mine : pred}
+                          <span style={{ fontSize: 9, fontWeight: 400, marginLeft: 2, color: C.sub }}>
+                            {mine != null ? "" : "추정"}
+                          </span>
                         </span>
-                      </span>
-                    );
-                  })()}
+                      );
+                    })()}
+                  </div>
+                  {en.nameKo && en.nameKo !== en.name && (
+                    <div style={{ fontSize: 11, color: C.sub }}>{en.nameKo}</div>
+                  )}
                 </div>
-                {en.nameKo && en.nameKo !== en.name && (
-                  <div style={{ fontSize: 11, color: C.sub }}>{en.nameKo}</div>
-                )}
+                <CriticBadges c={cellarCritics(critSrc)} quiet />
+                {/* 출고(마심)·입고 — 리스트에서 바로 조정. 0병이 되면 목록에서 빠짐 */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                  <button onClick={(ev) => { ev.stopPropagation();
+                    const ms = en._members || [en];
+                    const target = ms.filter((m) => (Number(m.stock) || 0) > 0)[0];
+                    if (target) adjustStock(target, -1); }}
+                    style={{ padding: "3px 10px", borderRadius: 7, border: `1px solid ${C.line}`,
+                      background: "transparent", color: C.sub, fontSize: 11, cursor: "pointer" }}>
+                    − 마심
+                  </button>
+                  <button onClick={(ev) => { ev.stopPropagation();
+                    const ms = en._members || [en];
+                    adjustStock(ms[0], 1); }}
+                    style={{ padding: "3px 10px", borderRadius: 7, border: `1px solid ${C.line}`,
+                      background: "transparent", color: C.sub, fontSize: 11, cursor: "pointer" }}>
+                    + 입고
+                  </button>
+                </div>
               </div>
-              {priceLabel(en.info) && (
-                <div style={{ color: C.goldDim, fontSize: 12, whiteSpace: "nowrap" }}>{priceLabel(en.info)}</div>
-              )}
-              <span style={{ color: C.goldDim, fontSize: 11 }}>
-                {lp.loading ? "…" : lp.open ? "▴" : "🍽"}
-              </span>
-            </div>
-            {/* 출고(마심)·입고 — 리스트에서 바로 조정. 0병이 되면 목록에서 빠짐 */}
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-              <button onClick={(ev) => { ev.stopPropagation();
-                const ms = en._members || [en];
-                const target = ms.filter((m) => (Number(m.stock) || 0) > 0)[0];
-                if (target) adjustStock(target, -1); }}
-                style={{ padding: "3px 10px", borderRadius: 7, border: `1px solid ${C.line}`,
-                  background: "transparent", color: C.sub, fontSize: 11, cursor: "pointer" }}>
-                − 마심
-              </button>
-              <button onClick={(ev) => { ev.stopPropagation();
-                const ms = en._members || [en];
-                adjustStock(ms[0], 1); }}
-                style={{ padding: "3px 10px", borderRadius: 7, border: `1px solid ${C.line}`,
-                  background: "transparent", color: C.sub, fontSize: 11, cursor: "pointer" }}>
-                + 입고
-              </button>
+              {/* 오른쪽: 가격·페어링 아이콘, 그 아래 병 사진 */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6,
+                flexShrink: 0, minWidth: anyPhoto ? 64 : 0 }}>
+                <div onClick={() => loadListPairing(en)}
+                  style={{ display: "flex", alignItems: "baseline", gap: 6, cursor: "pointer" }}>
+                  {priceLabel(en.info) && (
+                    <span style={{ color: C.goldDim, fontSize: 12, whiteSpace: "nowrap" }}>{priceLabel(en.info)}</span>
+                  )}
+                  <span style={{ color: C.goldDim, fontSize: 11 }}>
+                    {lp.loading ? "…" : lp.open ? "▴" : "🍽"}
+                  </span>
+                </div>
+                <BottleThumb c={cellarCritics(photoSrc)} h={90} w={64} />
+              </div>
             </div>
             {lp.loading && (
               <div style={{ fontSize: 11, color: C.sub, padding: "6px 0 2px" }}>어울리는 음식 찾는 중…</div>
@@ -6335,7 +6343,6 @@ function App() {
                 )}
               </div>
             )}
-            </div>
           </div>
           );
         };
