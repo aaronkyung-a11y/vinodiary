@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.61";
+const APP_VERSION = "v1.62";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -173,7 +173,7 @@ function CriticBadges({ c, quiet }) {
               color: C.gold, whiteSpace: "nowrap" }}>
             <b>{sc.critic}</b> {sc.score}
             {sc.sameVintage === false && sc.vintage
-              ? <span style={{ color: C.sub }}> · {"'" + String(sc.vintage).slice(-2)}</span> : null}
+              ? <span style={{ color: C.sub }}> · {/^\d{4}$/.test(String(sc.vintage)) ? "'" + String(sc.vintage).slice(-2) : String(sc.vintage)}</span> : null}
           </span>
         ))}
         <button onClick={() => setOpen(!open)}
@@ -4738,16 +4738,6 @@ function App() {
               <div key={e.id} id={"cellar-item-" + e.id} style={{ background: C.panel, border: `1px solid ${open ? C.goldDim : C.line}`,
                 borderRadius: 14, padding: 14, marginBottom: 10 }}>
                 <div style={{ display: "flex", gap: 12 }}>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center",
-                    flexShrink: 0, gap: 3 }}>
-                    <ScoreRing value={e.myScore ?? e.predictedScore} size={54} predicted={e.myScore == null} />
-                    {(e.myScore != null || e.predictedScore != null) && (
-                      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
-                        color: e.myScore != null ? C.gold : C.sub }}>
-                        {e.myScore != null ? "내 점수" : "예측"}
-                      </span>
-                    )}
-                  </div>
                   <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
                     onClick={() => toggleExpand(e.id)}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -4776,12 +4766,22 @@ function App() {
                     )}
                     <CriticBadges c={cellarCritics(e)} quiet />
                   </div>
-                  {/* 오른쪽 열: 위에 ×, 그 아래 병 사진(크게) */}
+                  {/* 오른쪽 열: 위에 ×, 병 사진, 그 아래 내 점수(예측) — 이름 칸을 넓게 쓰기 위해 점수를 오른쪽 아래로 */}
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0, gap: 2 }}>
                     <button onClick={() => removeEntry(e.id)}
                       style={{ background: "none", border: "none", color: C.line, fontSize: 18,
                         cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
                     <BottleThumb c={cellarCritics(e)} h={150} w={104} />
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+                      minWidth: 104, marginTop: 6 }}>
+                      <ScoreRing value={e.myScore ?? e.predictedScore} size={54} predicted={e.myScore == null} />
+                      {(e.myScore != null || e.predictedScore != null) && (
+                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
+                          color: e.myScore != null ? C.gold : C.sub }}>
+                          {e.myScore != null ? "내 점수" : "예측"}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
