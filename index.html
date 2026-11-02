@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.56";
+const APP_VERSION = "v1.57";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -198,19 +198,49 @@ function CriticBadges({ c, quiet }) {
   );
 }
 
-// 병 사진: 판매점·생산자 페이지의 대표 사진. 누르면 그 페이지로. 못 불러오면 조용히 숨김.
-function BottleThumb({ c, h }) {
+// 병 사진: 판매점·생산자 페이지의 대표 사진. 누르면 크게 보기(출처 페이지 링크 포함). 못 불러오면 조용히 숨김.
+// wide: 카드 폭 전체를 쓰는 큰 사진(분석 결과). 아니면 오른쪽 썸네일. 가로로 긴 사진(SNS용 대표 이미지)은
+// 병이 가운데 작게 들어 있는 경우가 많아 꽉 채워(양옆 여백 잘라) 병이 크게 보이게 한다. 전체는 크게 보기에서.
+function BottleThumb({ c, h, wide }) {
   const [bad, setBad] = useState(false);
+  const [land, setLand] = useState(false);
+  const [zoom, setZoom] = useState(false);
   const src = c && c.image;
   if (!src || bad) return null;
+  const onLoad = (ev) => {
+    const im = ev.currentTarget;
+    if (im.naturalWidth && im.naturalHeight) setLand(im.naturalWidth > im.naturalHeight * 1.15);
+  };
   return (
-    <a href={c.imagePage || src} target="_blank" rel="noopener noreferrer" title="사진 출처 페이지 열기"
-      onClick={(ev) => ev.stopPropagation()}
-      style={{ flexShrink: 0, width: Math.round(h * 0.78), height: h, borderRadius: 8, background: "#fff",
-        display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-      <img src={src} alt="" referrerPolicy="no-referrer" loading="lazy" onError={() => setBad(true)}
-        style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
-    </a>
+    <>
+      <div title="크게 보기" onClick={(ev) => { ev.stopPropagation(); setZoom(true); }}
+        style={{ flexShrink: 0, width: wide ? "100%" : Math.round(h * 0.78), height: h, borderRadius: 10,
+          background: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
+          overflow: "hidden", cursor: "zoom-in", marginTop: wide ? 14 : 0 }}>
+        <img src={src} alt="" referrerPolicy="no-referrer" loading="lazy" onLoad={onLoad} onError={() => setBad(true)}
+          style={land
+            ? { width: "100%", height: "100%", objectFit: "cover" }
+            : { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+      </div>
+      {zoom && (
+        <div onClick={(ev) => { ev.stopPropagation(); setZoom(false); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(10,8,4,0.94)", zIndex: 95,
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 18 }}>
+          <img src={src} alt="" referrerPolicy="no-referrer"
+            style={{ maxWidth: "92vw", maxHeight: "78vh", objectFit: "contain", background: "#fff", borderRadius: 12 }} />
+          <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+            {c.imagePage && (
+              <a href={c.imagePage} target="_blank" rel="noopener noreferrer" onClick={(ev) => ev.stopPropagation()}
+                style={{ padding: "9px 16px", borderRadius: 10, border: `1px solid ${C.goldDim}`, color: C.gold,
+                  fontSize: 13, textDecoration: "none" }}>출처 페이지 ↗</a>
+            )}
+            <button onClick={(ev) => { ev.stopPropagation(); setZoom(false); }}
+              style={{ padding: "9px 16px", borderRadius: 10, border: `1px solid ${C.line}`, background: "transparent",
+                color: C.sub, fontSize: 13, cursor: "pointer" }}>닫기</button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -4309,8 +4339,8 @@ function App() {
                     )}
                     <CriticBadges c={criticsFor(result.name, result.critics, result.bottle)} />
                   </div>
-                  <BottleThumb c={criticsFor(result.name, result.critics, result.bottle)} h={96} />
                 </div>
+                <BottleThumb c={criticsFor(result.name, result.critics, result.bottle)} h={240} wide />
                 <div style={{ marginTop: 14, fontSize: 13, color: C.sub, lineHeight: 1.5 }}>
                   <b style={{ color: C.gold }}>닮은 것</b> · {safeStr(result.resembles)}
                 </div>
@@ -4733,7 +4763,7 @@ function App() {
                     <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.4 }}>{safeStr(e.resembles)}</div>
                     <CriticBadges c={cellarCritics(e)} quiet />
                   </div>
-                  <BottleThumb c={cellarCritics(e)} h={64} />
+                  <BottleThumb c={cellarCritics(e)} h={96} />
                   <button onClick={() => removeEntry(e.id)}
                     style={{ background: "none", border: "none", color: C.line, fontSize: 18,
                       cursor: "pointer", alignSelf: "flex-start" }}>×</button>
@@ -5405,7 +5435,7 @@ function App() {
                     {r.nameKo && r.nameKo !== r.name && (
                       <div style={{ fontSize: 12, color: C.sub, marginTop: 1 }}>{r.nameKo}</div>
                     )}
-                    <div style={{ marginLeft: "auto" }}><BottleThumb c={criticsFor(r.name)} h={64} /></div>
+                    <div style={{ marginLeft: "auto" }}><BottleThumb c={criticsFor(r.name)} h={110} /></div>
                   </div>
                   <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{r.why}</div>
                   <CriticBadges c={criticsFor(r.name)} />
