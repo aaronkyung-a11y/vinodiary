@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.59";
+const APP_VERSION = "v1.60";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -195,6 +195,16 @@ function CriticBadges({ c, quiet }) {
         </div>
       )}
     </div>
+  );
+}
+
+// 목록형 창(셀러 리스트·지난 분석·지난 추천)의 오른쪽 위 고정 닫기 — 길게 스크롤해도 항상 보이게
+function ModalClose({ onClose }) {
+  return (
+    <button onClick={(ev) => { ev.stopPropagation(); onClose(); }} aria-label="닫기"
+      style={{ position: "fixed", top: 12, right: 12, zIndex: 92, padding: "8px 14px", borderRadius: 20,
+        background: C.panel2, color: C.text, border: `1px solid ${C.goldDim}`, fontSize: 13, cursor: "pointer",
+        boxShadow: "0 4px 16px rgba(0,0,0,0.5)" }}>✕ 닫기</button>
   );
 }
 
@@ -6067,6 +6077,7 @@ function App() {
           <div onClick={() => setShowAnaHist(false)}
             style={{ position: "fixed", inset: 0, background: "rgba(10,8,4,0.92)", zIndex: 90,
               overflowY: "auto", padding: "30px 22px 60px" }}>
+            <ModalClose onClose={() => setShowAnaHist(false)} />
             <div onClick={(ev) => ev.stopPropagation()}
               style={{ maxWidth: 420, margin: "0 auto", background: C.panel,
                 border: `1px solid ${C.goldDim}`, borderRadius: 16, padding: "24px 20px" }}>
@@ -6141,6 +6152,7 @@ function App() {
         <div onClick={() => setShowRecHist(false)}
           style={{ position: "fixed", inset: 0, background: "rgba(10,8,4,0.92)", zIndex: 90,
             overflowY: "auto", padding: "30px 22px 60px" }}>
+          <ModalClose onClose={() => setShowRecHist(false)} />
           <div onClick={(ev) => ev.stopPropagation()}
             style={{ maxWidth: 420, margin: "0 auto", background: C.panel,
               border: `1px solid ${C.goldDim}`, borderRadius: 16, padding: "24px 20px" }}>
@@ -6220,12 +6232,21 @@ function App() {
         });
         const held = Object.keys(groupMap).map((k) => groupMap[k]);
         const wines = held.filter((en) => en.kind !== "whisky");
+        // 사진이 하나라도 있으면 사진 칸을 모든 줄에 확보해 이름 줄을 가지런히
+        const photoOf = (en) => [en].concat(en._members || []).find((m) => m.info && m.info.bottle && m.info.bottle.image) || en;
+        const anyPhoto = held.some((en) => { const m = photoOf(en); return !!(cellarCritics(m) || {}).image; });
         const whiskies = held.filter((en) => en.kind === "whisky");
         const line = (en) => {
           const lp = listPair[en.id] || {};
           const d = lp.data;
+          // 같은 술 여러 기록 중 사진이 있는 기록을 대표로
+          const photoSrc = photoOf(en);
           return (
-          <div key={en.id} style={{ marginBottom: 10 }}>
+          <div key={en.id} style={{ marginBottom: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
+            {anyPhoto && (
+              <div style={{ width: 60, flexShrink: 0 }}><BottleThumb c={cellarCritics(photoSrc)} h={84} w={60} /></div>
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
             <div onClick={() => loadListPairing(en)}
               style={{ display: "flex", alignItems: "baseline", gap: 8, cursor: "pointer" }}>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -6314,6 +6335,7 @@ function App() {
                 )}
               </div>
             )}
+            </div>
           </div>
           );
         };
@@ -6329,6 +6351,7 @@ function App() {
           <div onClick={() => setShowCellarList(false)}
             style={{ position: "fixed", inset: 0, background: "rgba(10,8,4,0.92)", zIndex: 90,
               overflowY: "auto", padding: "30px 22px 60px" }}>
+            <ModalClose onClose={() => setShowCellarList(false)} />
             <div onClick={(ev) => ev.stopPropagation()}
               style={{ maxWidth: 420, margin: "0 auto", background: C.panel,
                 border: `1px solid ${C.goldDim}`, borderRadius: 16, padding: "26px 22px" }}>
