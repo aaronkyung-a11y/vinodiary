@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.55";
+const APP_VERSION = "v1.56";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -158,12 +158,12 @@ const CRITIC_NAMES = {
 };
 function criticKey(n) { return String(n || "").toLowerCase().replace(/[^a-z0-9가-힣]/g, ""); }
 function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return String(u || "").slice(0, 40); } }
-function CriticBadges({ c }) {
+function CriticBadges({ c, quiet }) {
   const [open, setOpen] = useState(false);
   if (!c || c.unsupported || c.error) return null;
   if (c.loading) return <div style={{ fontSize: 11, color: C.sub, marginTop: 6 }}>평론가 점수 확인 중…</div>;
   const list = c.scores || [];
-  if (!list.length) return <div style={{ fontSize: 11, color: C.sub, marginTop: 6 }}>확인된 평론가 점수 없음</div>;
+  if (!list.length) return quiet ? null : <div style={{ fontSize: 11, color: C.sub, marginTop: 6 }}>확인된 평론가 점수 없음</div>;
   return (
     <div style={{ marginTop: 8 }} onClick={(ev) => ev.stopPropagation()}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center" }}>
@@ -919,6 +919,9 @@ function App() {
   const [urlInput, setUrlInput] = useState(getApiUrl());
   const [tab, setTab] = useState("add");
   const [entries, setEntries] = useState(() => readEntriesCache(getProfile()) || []);
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
+  const [criticFillProg, setCriticFillProg] = useState(null); // {done,total} 평론가 점수·사진 일괄 채우기
   const [text, setText] = useState("");
   const [imageData, setImageData] = useState(null);
   const [menuImages, setMenuImages] = useState([]); // 메뉴판 여러 장(base64 배열, 최대 4)
@@ -997,6 +1000,8 @@ function App() {
         next.delete(id);
       } else {
         next.add(id);
+        const en = (entriesRef.current || []).find((x) => x.id === id);
+        if (en && cellarNeedsCritics(en)) setTimeout(() => fetchCritics([{ name: en.name, kind: en.kind }]), 0);
         setTimeout(() => {
           try {
             const el = document.getElementById("cellar-item-" + id);
@@ -2322,13 +2327,17 @@ function App() {
     writeLS(CRITIC_LS, keep);
   }
   // items: [{name, kind}] — 아직 모르는 술만 2개씩 묶어 서버에 조회(웹 검색은 느려서 병렬·백그라운드)
-  async function fetchCritics(items) {
+  async function fetchCritics(items, onProgress) {
     const need = [];
     (items || []).forEach((it) => {
       const k = it && criticKey(it.name);
       const cur = k && criticsRef.current[k];
       const stale = cur && cur.scores && !cur.imgChecked && !cur.refreshing;
       if (k && (!cur || stale) && !need.some((x) => criticKey(x.name) === k)) need.push(it);
+    });
+    (items || []).forEach((it) => {
+      const cur = it && criticsRef.current[criticKey(it.name)];
+      if (cur && cur.imgChecked) persistCritics(it.name, cur);
     });
     if (!need.length) return;
     const loading = {};
@@ -2339,7 +2348,9 @@ function App() {
     patchCritics(loading);
     const chunks = [];
     for (let i = 0; i < need.length; i += 2) chunks.push(need.slice(i, i + 2));
-    await Promise.all(chunks.map(async (ch) => {
+    // 한 번에 3묶음까지만(셀러 일괄 채우기처럼 많을 때 서버·API 한도 보호)
+    let nextIdx = 0, doneCnt = 0;
+    const runChunk = async (ch) => {
       const patch = {};
       try {
         const r = await api({ action: "criticScores", items: ch.map((x) => ({ name: x.name, kind: x.kind || "" })) });
@@ -2362,6 +2373,9 @@ function App() {
         });
       }
       patchCritics(patch);
+      ch.forEach((x) => { const v = patch[criticKey(x.name)]; if (v && v.imgChecked) persistCritics(x.name, v); });
+      doneCnt += ch.length;
+      if (onProgress) { try { onProgress(doneCnt, need.length); } catch (e2) {} }
       // 분석 결과에도 붙여 둔다 → 지난 분석 기록·저장 시 함께 남음
       setResult((prev) => {
         if (!prev) return prev;
@@ -2370,7 +2384,66 @@ function App() {
         return { ...prev, critics: v.scores,
           bottle: v.imgChecked ? { image: v.image || "", page: v.imagePage || "" } : prev.bottle };
       });
-    }));
+    };
+    const worker = async () => { while (nextIdx < chunks.length) { const ch = chunks[nextIdx++]; await runChunk(ch); } };
+    await Promise.all([worker(), worker(), worker()]);
+  }
+  // 찾은 점수·사진을 같은 이름의 셀러 기록 info에 저장(시트 반영 → 다른 기기에서도 바로 보임, 재조회 없음)
+  function persistCritics(name, v) {
+    if (!v || !v.scores) return;
+    const k = criticKey(name);
+    (entriesRef.current || []).forEach((e) => {
+      if (criticKey(e.name) !== k) return;
+      const inf0 = e.info || {};
+      const sameScores = JSON.stringify(inf0.critics || []) === JSON.stringify(v.scores || []);
+      const sameImg = ((inf0.bottle && inf0.bottle.image) || "") === (v.image || "");
+      if (inf0.criticsChecked && sameScores && sameImg) return;
+      const info = { ...inf0, criticsChecked: true };
+      if (v.scores.length) info.critics = v.scores; else delete info.critics;
+      if (v.image) info.bottle = { image: v.image, page: v.imagePage || "" };
+      upsertLocal({ ...e, info });
+      if (outboxPatchEntry(e.id, { info })) return; // 아직 전송 대기 중이면 저장 때 함께
+      api({ action: "setInfo", id: e.id, info }).catch(() => {});
+    });
+  }
+  // 셀러 카드용: 기록에 저장된 값 우선, 없으면 이번에 조회한 값
+  function cellarCritics(e) {
+    const inf = e.info || {};
+    if (inf.criticsChecked || (inf.critics && inf.critics.length) || inf.bottle) {
+      const live = critics[criticKey(e.name)];
+      if (live && live.loading) return live;
+      return { scores: inf.critics || [], image: inf.bottle && inf.bottle.image, imagePage: inf.bottle && inf.bottle.page };
+    }
+    return critics[criticKey(e.name)] || null;
+  }
+  function cellarNeedsCritics(e) {
+    const inf = e.info || {};
+    return !inf.criticsChecked;
+  }
+  // 셀러 전체 일괄 채우기: 같은 이름은 한 번만 조회, 이미 조회해 둔 건 시트에만 저장
+  async function fillCellarCritics() {
+    const targets = (entriesRef.current || []).filter(cellarNeedsCritics);
+    if (!targets.length) return;
+    const byKey = {};
+    targets.forEach((e) => { const k = criticKey(e.name); if (k && !byKey[k]) byKey[k] = { name: e.name, kind: e.kind }; });
+    const uniq = Object.values(byKey);
+    const known = uniq.filter((x) => { const c = criticsRef.current[criticKey(x.name)]; return c && c.imgChecked; });
+    known.forEach((x) => persistCritics(x.name, criticsRef.current[criticKey(x.name)]));
+    const todo = uniq.filter((x) => !known.includes(x));
+    if (!todo.length) { showToast("평론가 점수·사진 채우기 완료", "done"); return; }
+    const jid = jobStart("fill", "평론가 점수·사진 채우기", "cellar");
+    setCriticFillProg({ done: 0, total: todo.length });
+    try {
+      await fetchCritics(todo, (d, t) => setCriticFillProg({ done: d, total: t }));
+    } finally {
+      setCriticFillProg(null);
+      const got = todo.filter((x) => { const c = criticsRef.current[criticKey(x.name)]; return c && c.imgChecked; });
+      const nScore = got.filter((x) => (criticsRef.current[criticKey(x.name)].scores || []).length).length;
+      const nImg = got.filter((x) => criticsRef.current[criticKey(x.name)].image).length;
+      const msg = `${got.length}종 확인 · 점수 ${nScore}종 · 사진 ${nImg}종`;
+      showToast(msg, "done");
+      jobEnd(jid, { ok: true, msg: "평론가 점수·사진 채우기 완료 · " + msg });
+    }
   }
   function criticsFor(name, fallback, bottle) {
     const c = critics[criticKey(name)];
@@ -2385,6 +2458,7 @@ function App() {
     const cs = (c && c.scores && c.scores.length) ? c.scores : (fallback && fallback.length ? fallback : null);
     let out = cs ? { ...(info || {}), critics: cs } : info;
     if (c && c.image) out = { ...(out || {}), bottle: { image: c.image, page: c.imagePage || "" } };
+    if (c && c.imgChecked) out = { ...(out || {}), criticsChecked: true };
     return out;
   }
 
@@ -4484,6 +4558,19 @@ function App() {
                 </button>
               );
             })()}
+            {serverKeeps !== false && (() => {
+              const names = new Set(entries.filter(cellarNeedsCritics).map((e) => criticKey(e.name)).filter(Boolean));
+              if (!names.size) return null;
+              const prog = criticFillProg;
+              return (
+                <button onClick={fillCellarCritics} disabled={!!prog}
+                  style={{ width: "100%", padding: "11px", marginBottom: 12, background: "transparent",
+                    color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 10, fontSize: 13,
+                    cursor: "pointer", opacity: prog ? 0.6 : 1 }}>
+                  {prog ? `평론가 점수·사진 찾는 중… ${prog.done}/${prog.total}` : `★ 평론가 점수·병 사진 채우기 (${names.size}종)`}
+                </button>
+              );
+            })()}
             {error && tab === "cellar" && (
               <div style={{ color: C.gold, fontSize: 13, marginBottom: 10, textAlign: "center" }}>
                 {error}
@@ -4644,7 +4731,9 @@ function App() {
                       </div>
                     )}
                     <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.4 }}>{safeStr(e.resembles)}</div>
+                    <CriticBadges c={cellarCritics(e)} quiet />
                   </div>
+                  <BottleThumb c={cellarCritics(e)} h={64} />
                   <button onClick={() => removeEntry(e.id)}
                     style={{ background: "none", border: "none", color: C.line, fontSize: 18,
                       cursor: "pointer", alignSelf: "flex-start" }}>×</button>
