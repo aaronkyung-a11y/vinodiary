@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.63";
+const APP_VERSION = "v1.64";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -229,7 +229,7 @@ function BottleThumb({ c, h, w, wide }) {
   const first = list[0] || "";
   useEffect(() => { setTryIdx(0); }, [first]); // 사진이 바뀌면(나중에 병 사진을 찾음 등) 처음부터
   const src = list[tryIdx];
-  if (!src) return null;
+  if (!src) return c && c.fallback ? <BottleThumb c={c.fallback} h={h} w={w} wide={wide} /> : null;
   const onErr = () => setTryIdx((i) => i + 1); // 다음 대체 주소, 없으면 숨김
   const onLoad = (ev) => {
     const im = ev.currentTarget;
@@ -2475,12 +2475,14 @@ function App() {
     }
     return critics[criticKey(e.name)] || null;
   }
-  // 셀러 카드·리스트 사진: 웹에서 찾은 병 사진 우선, 없으면 내가 찍어 올린 사진
+  // 셀러 카드·리스트 사진: 내가 찍어 올린 사진 우선, 없거나 안 열리면 웹에서 찾은 병 사진
   function cellarPhoto(e, members) {
     const all = [e].concat(members || []);
-    for (const m of all) { const cc = cellarCritics(m); if (cc && cc.image) return cc; }
+    let web = null;
+    for (const m of all) { const cc = cellarCritics(m); if (cc && cc.image) { web = cc; break; } }
     const mine = all.find((m) => m.image);
-    return mine ? ownPhoto(mine.image) : null;
+    if (mine) return { ...ownPhoto(mine.image), fallback: web };
+    return web;
   }
   function cellarNeedsCritics(e) {
     const inf = e.info || {};
