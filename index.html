@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.62";
+const APP_VERSION = "v1.63";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -211,12 +211,26 @@ function ModalClose({ onClose }) {
 // 병 사진: 판매점·생산자 페이지의 대표 사진. 누르면 크게 보기(출처 페이지 링크 포함). 못 불러오면 조용히 숨김.
 // wide: 카드 폭 전체를 쓰는 큰 사진(분석 결과). 아니면 오른쪽 썸네일. 가로로 긴 사진(SNS용 대표 이미지)은
 // 병이 가운데 작게 들어 있는 경우가 많아 꽉 채워(양옆 여백 잘라) 병이 크게 보이게 한다. 전체는 크게 보기에서.
+// 내가 찍은 사진(구글 드라이브) → 썸네일용 작은 주소 + 실패 시 대체 주소들
+function ownPhoto(url) {
+  if (!url) return null;
+  const m = String(url).match(/[-\w]{25,}/);
+  const id = m ? m[0] : null;
+  const small = /lh3\.googleusercontent\.com\/d\//.test(url) ? String(url).replace(/=w\d+$/, "=w500") : url;
+  const alts = id ? ["https://drive.google.com/thumbnail?id=" + id + "&sz=w500",
+    "https://drive.google.com/uc?export=view&id=" + id] : [];
+  return { image: small, alts, full: url, imagePage: "", own: true };
+}
 function BottleThumb({ c, h, w, wide }) {
-  const [bad, setBad] = useState(false);
+  const [tryIdx, setTryIdx] = useState(0);
   const [land, setLand] = useState(false);
   const [zoom, setZoom] = useState(false);
-  const src = c && c.image;
-  if (!src || bad) return null;
+  const list = c && c.image ? [c.image].concat(c.alts || []) : [];
+  const first = list[0] || "";
+  useEffect(() => { setTryIdx(0); }, [first]); // 사진이 바뀌면(나중에 병 사진을 찾음 등) 처음부터
+  const src = list[tryIdx];
+  if (!src) return null;
+  const onErr = () => setTryIdx((i) => i + 1); // 다음 대체 주소, 없으면 숨김
   const onLoad = (ev) => {
     const im = ev.currentTarget;
     if (im.naturalWidth && im.naturalHeight) setLand(im.naturalWidth > im.naturalHeight * 1.15);
@@ -226,17 +240,22 @@ function BottleThumb({ c, h, w, wide }) {
       <div title="크게 보기" onClick={(ev) => { ev.stopPropagation(); setZoom(true); }}
         style={{ flexShrink: 0, width: wide ? "100%" : (w || Math.round(h * 0.78)), height: h, borderRadius: 10,
           background: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
-          overflow: "hidden", cursor: "zoom-in", marginTop: wide ? 14 : 0 }}>
-        <img src={src} alt="" referrerPolicy="no-referrer" loading="lazy" onLoad={onLoad} onError={() => setBad(true)}
-          style={land
+          overflow: "hidden", cursor: "zoom-in", marginTop: wide ? 14 : 0, position: "relative" }}>
+        <img src={src} alt="" referrerPolicy="no-referrer" loading="lazy" onLoad={onLoad} onError={onErr}
+          style={(land || c.own)
             ? { width: "100%", height: "100%", objectFit: "cover" }
             : { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+        {c.own && (
+          <span style={{ position: "absolute", left: 4, bottom: 4, fontSize: 10, padding: "1px 5px", borderRadius: 6,
+            background: "rgba(0,0,0,0.55)", color: "#fff" }}>내 사진</span>
+        )}
       </div>
       {zoom && (
         <div onClick={(ev) => { ev.stopPropagation(); setZoom(false); }}
           style={{ position: "fixed", inset: 0, background: "rgba(10,8,4,0.94)", zIndex: 95,
             display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 18 }}>
-          <img src={src} alt="" referrerPolicy="no-referrer"
+          <img src={c.own && c.full ? c.full : src} alt="" referrerPolicy="no-referrer"
+            onError={(ev) => { if (ev.currentTarget.src !== src) ev.currentTarget.src = src; }}
             style={{ maxWidth: "92vw", maxHeight: "78vh", objectFit: "contain", background: "#fff", borderRadius: 12 }} />
           <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
             {c.imagePage && (
@@ -2455,6 +2474,13 @@ function App() {
       return { scores: inf.critics || [], image: inf.bottle && inf.bottle.image, imagePage: inf.bottle && inf.bottle.page };
     }
     return critics[criticKey(e.name)] || null;
+  }
+  // 셀러 카드·리스트 사진: 웹에서 찾은 병 사진 우선, 없으면 내가 찍어 올린 사진
+  function cellarPhoto(e, members) {
+    const all = [e].concat(members || []);
+    for (const m of all) { const cc = cellarCritics(m); if (cc && cc.image) return cc; }
+    const mine = all.find((m) => m.image);
+    return mine ? ownPhoto(mine.image) : null;
   }
   function cellarNeedsCritics(e) {
     const inf = e.info || {};
@@ -4771,7 +4797,7 @@ function App() {
                     <button onClick={() => removeEntry(e.id)}
                       style={{ background: "none", border: "none", color: C.line, fontSize: 18,
                         cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
-                    <BottleThumb c={cellarCritics(e)} h={150} w={104} />
+                    <BottleThumb c={cellarPhoto(e)} h={150} w={104} />
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
                       minWidth: 104, marginTop: 6 }}>
                       <ScoreRing value={e.myScore ?? e.predictedScore} size={54} predicted={e.myScore == null} />
@@ -6234,7 +6260,7 @@ function App() {
         const wines = held.filter((en) => en.kind !== "whisky");
         // 사진이 하나라도 있으면 사진 칸을 모든 줄에 확보해 이름 줄을 가지런히
         const photoOf = (en) => [en].concat(en._members || []).find((m) => m.info && m.info.bottle && m.info.bottle.image) || en;
-        const anyPhoto = held.some((en) => { const m = photoOf(en); return !!(cellarCritics(m) || {}).image; });
+        const anyPhoto = held.some((en) => !!(cellarPhoto(en, en._members) || {}).image);
         const whiskies = held.filter((en) => en.kind === "whisky");
         const line = (en) => {
           const lp = listPair[en.id] || {};
@@ -6304,7 +6330,7 @@ function App() {
                     {lp.loading ? "…" : lp.open ? "▴" : "🍽"}
                   </span>
                 </div>
-                <BottleThumb c={cellarCritics(photoSrc)} h={90} w={64} />
+                <BottleThumb c={cellarPhoto(en, en._members)} h={90} w={64} />
               </div>
             </div>
             {lp.loading && (
