@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.57";
+const APP_VERSION = "v1.58";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -201,7 +201,7 @@ function CriticBadges({ c, quiet }) {
 // 병 사진: 판매점·생산자 페이지의 대표 사진. 누르면 크게 보기(출처 페이지 링크 포함). 못 불러오면 조용히 숨김.
 // wide: 카드 폭 전체를 쓰는 큰 사진(분석 결과). 아니면 오른쪽 썸네일. 가로로 긴 사진(SNS용 대표 이미지)은
 // 병이 가운데 작게 들어 있는 경우가 많아 꽉 채워(양옆 여백 잘라) 병이 크게 보이게 한다. 전체는 크게 보기에서.
-function BottleThumb({ c, h, wide }) {
+function BottleThumb({ c, h, w, wide }) {
   const [bad, setBad] = useState(false);
   const [land, setLand] = useState(false);
   const [zoom, setZoom] = useState(false);
@@ -214,7 +214,7 @@ function BottleThumb({ c, h, wide }) {
   return (
     <>
       <div title="크게 보기" onClick={(ev) => { ev.stopPropagation(); setZoom(true); }}
-        style={{ flexShrink: 0, width: wide ? "100%" : Math.round(h * 0.78), height: h, borderRadius: 10,
+        style={{ flexShrink: 0, width: wide ? "100%" : (w || Math.round(h * 0.78)), height: h, borderRadius: 10,
           background: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
           overflow: "hidden", cursor: "zoom-in", marginTop: wide ? 14 : 0 }}>
         <img src={src} alt="" referrerPolicy="no-referrer" loading="lazy" onLoad={onLoad} onError={() => setBad(true)}
@@ -4763,10 +4763,13 @@ function App() {
                     <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.4 }}>{safeStr(e.resembles)}</div>
                     <CriticBadges c={cellarCritics(e)} quiet />
                   </div>
-                  <BottleThumb c={cellarCritics(e)} h={96} />
-                  <button onClick={() => removeEntry(e.id)}
-                    style={{ background: "none", border: "none", color: C.line, fontSize: 18,
-                      cursor: "pointer", alignSelf: "flex-start" }}>×</button>
+                  {/* 오른쪽 열: 위에 ×, 그 아래 병 사진(크게) */}
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0, gap: 2 }}>
+                    <button onClick={() => removeEntry(e.id)}
+                      style={{ background: "none", border: "none", color: C.line, fontSize: 18,
+                        cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
+                    <BottleThumb c={cellarCritics(e)} h={150} w={104} />
+                  </div>
                 </div>
 
                 {/* 펼침 상세 */}
