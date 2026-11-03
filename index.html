@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.64";
+const APP_VERSION = "v1.65";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -158,10 +158,21 @@ const CRITIC_NAMES = {
 };
 function criticKey(n) { return String(n || "").toLowerCase().replace(/[^a-z0-9가-힣]/g, ""); }
 function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return String(u || "").slice(0, 40); } }
-function CriticBadges({ c, quiet }) {
+function CriticBadges({ c, quiet, onRetry }) {
   const [open, setOpen] = useState(false);
-  if (!c || c.unsupported || c.error) return null;
-  if (c.loading) return <div style={{ fontSize: 11, color: C.sub, marginTop: 6 }}>평론가 점수 확인 중…</div>;
+  if (!c || c.unsupported) return null;
+  if (c.error) {
+    if (quiet || !onRetry) return null;
+    return (
+      <div style={{ fontSize: 11, color: C.sub, marginTop: 6 }}>
+        평론가 점수 검색 실패
+        <button onClick={(ev) => { ev.stopPropagation(); onRetry(); }}
+          style={{ marginLeft: 6, fontSize: 11, color: C.gold, background: "none", border: `1px solid ${C.goldDim}`,
+            borderRadius: 8, padding: "1px 8px", cursor: "pointer" }}>다시 찾기</button>
+      </div>
+    );
+  }
+  if (c.loading) return <div style={{ fontSize: 11, color: C.sub, marginTop: 6 }}>평론가 점수·병 사진 찾는 중… (웹 검색이라 수십 초 걸려요)</div>;
   const list = c.scores || [];
   if (!list.length) return quiet ? null : <div style={{ fontSize: 11, color: C.sub, marginTop: 6 }}>확인된 평론가 점수 없음</div>;
   return (
@@ -1048,7 +1059,8 @@ function App() {
     });
     return out;
   });
-  const criticsRef = useRef(critics);                                       // {rater, asked, kind} 현재 결과의 저장 키
+  const criticsRef = useRef(critics);
+  const criticAliasRef = useRef({}); // 결과 이름 키 → 분석 시작 때 미리 찾은 후보 이름 키                                       // {rater, asked, kind} 현재 결과의 저장 키
   const [kindFilter, setKindFilter] = useState("all"); // all | wine | whisky | wishlist
   const [expandedIds, setExpandedIds] = useState(() => new Set()); // 펼쳐진 카드 id들(다중)
   // 카드 펼침 토글: 열 때 해당 카드 상단이 보이도록 스크롤(제목부터)
@@ -2438,7 +2450,8 @@ function App() {
       // 분석 결과에도 붙여 둔다 → 지난 분석 기록·저장 시 함께 남음
       setResult((prev) => {
         if (!prev) return prev;
-        const v = patch[criticKey(prev.name)];
+        const pk = criticKey(prev.name);
+        const v = patch[pk] || (criticAliasRef.current[pk] ? patch[criticAliasRef.current[pk]] : undefined);
         if (!v || !v.scores) return prev;
         return { ...prev, critics: v.scores,
           bottle: v.imgChecked ? { image: v.image || "", page: v.imagePage || "" } : prev.bottle };
@@ -2513,8 +2526,21 @@ function App() {
       jobEnd(jid, { ok: true, msg: "평론가 점수·사진 채우기 완료 · " + msg });
     }
   }
+  function critEntry(map, name) {
+    const k = criticKey(name);
+    return map[k] || (criticAliasRef.current[k] ? map[criticAliasRef.current[k]] : undefined);
+  }
+  function retryCritics(name, kind) {
+    const k = criticKey(name), ak = criticAliasRef.current[k];
+    const patch = { [k]: undefined };
+    if (ak) { patch[ak] = undefined; delete criticAliasRef.current[k]; }
+    const next = { ...criticsRef.current, ...patch };
+    Object.keys(patch).forEach((x) => delete next[x]);
+    criticsRef.current = next; setCritics(next);
+    fetchCritics([{ name, kind }]);
+  }
   function criticsFor(name, fallback, bottle) {
-    const c = critics[criticKey(name)];
+    const c = critEntry(critics, name);
     if (c && !c.loading) return c;
     if ((fallback && fallback.length) || (bottle && bottle.image))
       return { scores: fallback || [], image: bottle && bottle.image, imagePage: bottle && bottle.page };
@@ -2522,7 +2548,7 @@ function App() {
   }
   // 저장할 info에 확인된 평론가 점수 포함
   function infoWithCritics(info, name, fallback) {
-    const c = criticsRef.current[criticKey(name)];
+    const c = critEntry(criticsRef.current, name);
     const cs = (c && c.scores && c.scores.length) ? c.scores : (fallback && fallback.length ? fallback : null);
     let out = cs ? { ...(info || {}), critics: cs } : info;
     if (c && c.image) out = { ...(out || {}), bottle: { image: c.image, page: c.imagePage || "" } };
@@ -2571,6 +2597,8 @@ function App() {
     anaInputRef.current = "";
     const jid = jobStart("analyze", "분석 · " + shortName(name), "add", { payload, ctx });
     beginAnalyzeUI();
+    // 평론가 점수·병 사진은 분석과 동시에 찾기 시작 — 분석 결과가 뜰 때쯤 같이 준비되게
+    fetchCritics([{ name, kind }]);
     try {
       const r = await api({ ...payload, reqId: jid });
       if (!r || r.error) throw new Error((r && r.error) || "빈 응답");
@@ -2600,7 +2628,18 @@ function App() {
     const multi = ctx.multi || [mainRater];
     anaMetaRef.current = { rater: mainRater, asked: name, input: ctx.input || "", kind: r.kind || kind, at: Date.now() };
     setResult(r);
-    fetchCritics([{ name: r.name || name, kind: r.kind || kind }]);
+    {
+      // 결과 이름이 후보 이름과 다르면, 이미 찾고 있는(찾은) 후보 이름 결과를 그대로 연결 — 중복 검색 없음
+      const rk = criticKey(r.name || name), ck = criticKey(name);
+      if (rk && ck && rk !== ck && criticsRef.current[ck] && !criticsRef.current[rk]) {
+        criticAliasRef.current[rk] = ck;
+        const v = criticsRef.current[ck];
+        if (v && v.scores) setResult((prev) => (prev && prev.name === r.name ? { ...prev, critics: v.scores,
+          bottle: v.imgChecked ? { image: v.image || "", page: v.imagePage || "" } : prev.bottle } : prev));
+      } else {
+        fetchCritics([{ name: r.name || name, kind: r.kind || kind }]);
+      }
+    }
     // 분석 완료: 결과 위치로 스크롤 + 완료 알림(다른 탭이면 '보기' 토스트·앱 밖이면 폰 알림)
     showToast("분석 완료", "done");
     jobEnd(jid, { ok: true, msg: "분석 완료 · " + shortName(r.name || name), scroll: resultRef });
@@ -4375,7 +4414,7 @@ function App() {
                     {result.nameKo && result.nameKo !== result.name && (
                       <div style={{ fontSize: 12, color: C.sub, marginTop: 1 }}>{result.nameKo}</div>
                     )}
-                    <CriticBadges c={criticsFor(result.name, result.critics, result.bottle)} />
+                    <CriticBadges c={criticsFor(result.name, result.critics, result.bottle)} onRetry={() => retryCritics(result.name, result.kind)} />
                   </div>
                 </div>
                 <BottleThumb c={criticsFor(result.name, result.critics, result.bottle)} h={240} wide />
@@ -5482,7 +5521,7 @@ function App() {
                     <div style={{ marginLeft: "auto" }}><BottleThumb c={criticsFor(r.name)} h={110} /></div>
                   </div>
                   <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{r.why}</div>
-                  <CriticBadges c={criticsFor(r.name)} />
+                  <CriticBadges c={criticsFor(r.name)} onRetry={() => retryCritics(r.name, r.kind)} />
                   {r.predictedScore != null && (
                     <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>예측 점수는 추정값입니다</div>
                   )}
