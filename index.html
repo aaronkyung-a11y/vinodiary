@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.65";
+const APP_VERSION = "v1.66";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -4832,23 +4832,23 @@ function App() {
                       <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.4, marginTop: 4 }}>{safeStr(e.resembles)}</div>
                     )}
                     <CriticBadges c={cellarCritics(e)} quiet />
+                    {/* 내 점수(없으면 예측) — 전문가 평점 바로 아래 */}
+                    {(e.myScore != null || e.predictedScore != null) && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                        <ScoreRing value={e.myScore ?? e.predictedScore} size={50} predicted={e.myScore == null} />
+                        <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5,
+                          color: e.myScore != null ? C.gold : C.sub }}>
+                          {e.myScore != null ? "내 점수" : "예측 점수"}
+                        </span>
+                      </div>
+                    )}
                   </div>
-                  {/* 오른쪽 열: 위에 ×, 병 사진, 그 아래 내 점수(예측) — 이름 칸을 넓게 쓰기 위해 점수를 오른쪽 아래로 */}
+                  {/* 오른쪽 열: 위에 ×, 그 아래 병 사진 */}
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0, gap: 2 }}>
                     <button onClick={() => removeEntry(e.id)}
                       style={{ background: "none", border: "none", color: C.line, fontSize: 18,
                         cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
                     <BottleThumb c={cellarPhoto(e)} h={150} w={104} />
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
-                      minWidth: 104, marginTop: 6 }}>
-                      <ScoreRing value={e.myScore ?? e.predictedScore} size={54} predicted={e.myScore == null} />
-                      {(e.myScore != null || e.predictedScore != null) && (
-                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
-                          color: e.myScore != null ? C.gold : C.sub }}>
-                          {e.myScore != null ? "내 점수" : "예측"}
-                        </span>
-                      )}
-                    </div>
                   </div>
                 </div>
 
