@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.66";
+const APP_VERSION = "v1.67";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -3371,14 +3371,50 @@ function App() {
   }
 
   const [pendingDelete, setPendingDelete] = useState(null); // {entry, timer}
+  // 휴지통: 지운 기록은 서버 trash 시트에 30일 보관 후 영구 삭제(v1.67). null=아직 모름, false=구버전 서버
+  const [trash, setTrash] = useState(null);
+  const [showTrash, setShowTrash] = useState(false);
+  const [trashBusy, setTrashBusy] = useState(null);
+  const [trashEmptyArm, setTrashEmptyArm] = useState(false);
+  async function loadTrash() {
+    try {
+      const r = await api({ action: "listTrash" });
+      if (r && r.error) { setTrash(/unknown action/i.test(String(r.error)) ? false : (trash || [])); return; }
+      setTrash((r && r.items) || []);
+    } catch (e) { /* 네트워크 오류는 다음에 다시 */ }
+  }
+  useEffect(() => { if (ready && tab === "cellar" && trash === null) loadTrash(); }, [ready, tab]);
+  async function restoreFromTrash(it) {
+    setTrashBusy(it.id);
+    try {
+      const r = await api({ action: "restoreEntry", id: it.id });
+      if (!r || !r.ok) throw new Error((r && r.error) || "복원 실패");
+      upsertLocal({ ...(r.entry || it.entry || {}), id: (r.entry && r.entry.id) || (it.entry && it.entry.id) || it.id });
+      setTrash((prev) => (prev || []).filter((x) => x.id !== it.id));
+      showToast("복원했어요 · " + shortName((it.entry && it.entry.name) || ""), "done");
+    } catch (e) {
+      showToast(String(e && e.message ? e.message : "복원 실패"), "error");
+    } finally { setTrashBusy(null); }
+  }
+  async function purgeFromTrash(ids, all) {
+    setTrashBusy(all ? "__all" : ids[0]);
+    try {
+      const r = await api({ action: "purgeTrash", ids: ids || [], all: !!all });
+      if (!r || !r.ok) throw new Error((r && r.error) || "영구 삭제 실패");
+      setTrash((prev) => all ? [] : (prev || []).filter((x) => !ids.includes(x.id)));
+      showToast(all ? "휴지통을 비웠어요" : "영구 삭제했어요", "done");
+    } catch (e) {
+      showToast(String(e && e.message ? e.message : "영구 삭제 실패"), "error");
+    } finally { setTrashBusy(null); setTrashEmptyArm(false); }
+  }
   function removeEntry(id) {
     const target = entries.find((e) => e.id === id);
     if (!target) return;
-    // 화면에서 즉시 숨기고, 되돌리기 토스트 표시. 일정 시간 뒤 실제 삭제.
+    // 화면에서 즉시 숨기고, 되돌리기 토스트 표시. 일정 시간 뒤 서버에서 삭제(=휴지통으로 이동).
     setEntries((prev) => prev.filter((e) => e.id !== id));
     const timer = setTimeout(() => {
       if (outboxHas(id)) outboxRemove(id); // 전송 대기 중이던 항목은 대기열에서 빼기(전송 중이었다면 저장 직후 삭제됨)
-      api({ action: "delete", id });
+      api({ action: "delete", id }).then(() => { if (trash !== false) loadTrash(); }).catch(() => {});
       setPendingDelete(null);
     }, 5000);
     setPendingDelete({ entry: target, timer });
@@ -5136,6 +5172,13 @@ function App() {
                   "{search}"에 해당하는 술이 없어요.
                 </div>
               )}
+            {Array.isArray(trash) && trash.length > 0 && (
+              <button onClick={() => { setTrashEmptyArm(false); setShowTrash(true); }}
+                style={{ width: "100%", padding: "11px", marginTop: 14, background: "transparent",
+                  color: C.sub, border: `1px dashed ${C.line}`, borderRadius: 10, fontSize: 13, cursor: "pointer" }}>
+                🗑 휴지통 ({trash.length}) · 지운 기록 30일 보관
+              </button>
+            )}
             {/* 이름 설정 */}
             <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${C.line}` }}>
               <div style={{ fontSize: 11, color: C.goldDim, letterSpacing: 1, marginBottom: 8 }}>
@@ -6121,10 +6164,75 @@ function App() {
           zIndex: 51, background: C.panel2, color: C.text, border: `1px solid ${C.line}`,
           borderRadius: 20, padding: "9px 12px 9px 18px", fontSize: 13, display: "flex",
           alignItems: "center", gap: 12, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", whiteSpace: "nowrap" }}>
-          <span>삭제됨</span>
+          <span>{trash === false ? "삭제됨" : "삭제됨 · 휴지통에 30일 보관"}</span>
           <button onClick={undoDelete}
             style={{ background: "none", border: "none", color: C.gold, fontWeight: 700,
               fontSize: 13, cursor: "pointer", padding: "2px 6px" }}>되돌리기</button>
+        </div>
+      )}
+      {/* 휴지통 */}
+      {showTrash && (
+        <div onClick={() => setShowTrash(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(10,8,4,0.92)", zIndex: 90,
+            overflowY: "auto", padding: "30px 22px 60px" }}>
+          <ModalClose onClose={() => setShowTrash(false)} />
+          <div onClick={(ev) => ev.stopPropagation()}
+            style={{ maxWidth: 420, margin: "0 auto", background: C.panel,
+              border: `1px solid ${C.goldDim}`, borderRadius: 16, padding: "24px 20px" }}>
+            <div style={{ textAlign: "center", marginBottom: 16 }}>
+              <div style={{ fontFamily: "Georgia, serif", fontSize: 18, color: C.gold, letterSpacing: 3 }}>휴지통</div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>지운 기록은 30일 뒤 자동으로 영구 삭제돼요</div>
+            </div>
+            {(!trash || !trash.length) && (
+              <div style={{ fontSize: 13, color: C.sub, textAlign: "center", padding: "16px 0" }}>비어 있어요</div>
+            )}
+            {(trash || []).map((it) => {
+              const en = it.entry || {};
+              const days = Math.floor((Date.now() - (it.deletedAt || 0)) / 86400000);
+              const left = Math.max(0, 30 - days);
+              const busy = trashBusy === it.id || trashBusy === "__all";
+              return (
+                <div key={it.id} style={{ padding: "12px 0", borderBottom: `1px solid ${C.line}` }}>
+                  <div style={{ fontFamily: "Georgia, serif", fontSize: 15, color: C.text, lineHeight: 1.3 }}>{en.name || "(이름 없음)"}</div>
+                  {en.nameKo && en.nameKo !== en.name && (
+                    <div style={{ fontSize: 12, color: C.sub, marginTop: 1 }}>{en.nameKo}</div>
+                  )}
+                  <div style={{ fontSize: 11, color: C.goldDim, marginTop: 3 }}>
+                    {en.myScore != null ? `내 점수 ${en.myScore} · ` : ""}
+                    {days === 0 ? "오늘 삭제" : `${days}일 전 삭제`} · {left}일 뒤 영구 삭제
+                  </div>
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <button onClick={() => restoreFromTrash(it)} disabled={busy}
+                      style={{ flex: 1, padding: "8px", borderRadius: 8, border: `1px solid ${C.gold}`,
+                        background: "transparent", color: C.gold, fontSize: 13, cursor: "pointer", opacity: busy ? 0.5 : 1 }}>
+                      {trashBusy === it.id ? "처리 중…" : "↩ 복원"}
+                    </button>
+                    <button onClick={() => purgeFromTrash([it.id], false)} disabled={busy}
+                      style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.line}`,
+                        background: "transparent", color: C.sub, fontSize: 12, cursor: "pointer", opacity: busy ? 0.5 : 1 }}>
+                      영구 삭제
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              {trash && trash.length > 0 && (
+                <button onClick={() => { if (trashEmptyArm) purgeFromTrash([], true); else setTrashEmptyArm(true); }}
+                  disabled={trashBusy === "__all"}
+                  style={{ flex: 1, padding: "11px", background: "transparent",
+                    color: trashEmptyArm ? "#F4B8C0" : C.sub, border: `1px solid ${trashEmptyArm ? "#7C2A3A" : C.line}`,
+                    borderRadius: 10, fontSize: 13, cursor: "pointer" }}>
+                  {trashEmptyArm ? "한 번 더 누르면 모두 영구 삭제" : "휴지통 비우기"}
+                </button>
+              )}
+              <button onClick={() => setShowTrash(false)}
+                style={{ flex: 1, padding: "11px", background: "transparent",
+                  color: C.gold, border: `1px solid ${C.goldDim}`, borderRadius: 10, fontSize: 13, cursor: "pointer" }}>
+                닫기
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {/* 지난 분석 기록 */}
