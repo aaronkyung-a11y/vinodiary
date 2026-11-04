@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.67";
+const APP_VERSION = "v1.68";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -205,6 +205,87 @@ function CriticBadges({ c, quiet, onRetry }) {
           <div style={{ marginTop: 2 }}>웹 검색으로 출처가 확인된 점수만 표시해요</div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------- TOP 100 (v1.68) ----------
+// 평론지 연간 Top 100 목록(top100.json, 레포에 함께 배포). 분석·메뉴판·추천·셀러에서 목록에 든 술이면 배지 표시.
+const SHOW_QUIZ = false; // 퀴즈 탭은 숨김(코드는 유지 — true로 바꾸면 다시 보임)
+const T100_LS = "vinodiary:top100";
+const T100_GENERIC = new Set(("champagne brut extra nature wine vino vin rouge rosso tinto red doc docg aoc aop igt " +
+  "chateau domaine tenuta bodega bodegas cantina cantine weingut famille familia famiglia maison vina vinedos winery " +
+  "grand gran cru classe premier 1er the and de du des la le les di del della dei d l y e et il lo da do of").split(" "));
+function t100Toks(name) {
+  const raw = String(name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .split(/[^a-z0-9#]+/).filter(Boolean)
+    .map((t) => ({ st: "saint", ste: "sainte", mt: "mount", ch: "chateau" }[t] || t));
+  let vint = "";
+  const toks = new Set(), order = [];
+  raw.forEach((t) => {
+    if (/^(19|20)\d\d$/.test(t)) { vint = t; return; }
+    if (t === "nv") { vint = "NV"; return; }
+    if (T100_GENERIC.has(t) || t.length < 2) return; // 이니셜(G.B., M.) 등 한 글자 제외
+    if (!toks.has(t)) order.push(t);
+    toks.add(t);
+  });
+  return { toks, vint, order };
+}
+function t100BuildIndex(data) {
+  const idx = [];
+  ((data && data.lists) || []).forEach((list) => (list.items || []).forEach((item) => {
+    const t = t100Toks(item.name);
+    // 생산자 단어: WS는 생산자 칸, 그 외는 이름 앞 두 단어 — 이 중 하나는 반드시 겹쳐야 같은 술(다른 생산자 오인 방지)
+    const prod = item.producer ? t100Toks(item.producer).toks : new Set(t.order.slice(0, 2));
+    if (t.toks.size >= 2) idx.push({ list, item, toks: t.toks, vint: t.vint, prod });
+  }));
+  return idx;
+}
+// 목록 술의 핵심 단어 75% 이상 + 내 술 이름 단어의 60% 이상이 겹쳐야 같은 술로 봄(퀴베가 다른 술 오인 방지)
+function t100MatchName(name, idx) {
+  const q = t100Toks(name);
+  if (q.toks.size < 2) return [];
+  const best = {};
+  idx.forEach((x) => {
+    let inter = 0;
+    x.toks.forEach((t) => { if (q.toks.has(t)) inter++; });
+    if (inter < 2) return;
+    let prodHit = false;
+    x.prod.forEach((t) => { if (q.toks.has(t)) prodHit = true; });
+    if (x.prod.size && !prodHit) return;
+    const covItem = inter / x.toks.size, covQ = inter / q.toks.size;
+    if (covItem < 0.75 || covQ < 0.6) return;
+    const sc = covItem + covQ;
+    const prev = best[x.list.id];
+    if (!prev || sc > prev.sc) best[x.list.id] = { list: x.list, item: x.item, sc,
+      sameVintage: (q.vint && x.vint) ? q.vint === x.vint : null, listVint: x.vint };
+  });
+  return Object.values(best).sort((a, b) => (a.list.date < b.list.date ? 1 : -1));
+}
+function T100Photos({ items, fetchCritics }) {
+  const key = (items || []).map((x) => x.name).join("|");
+  useEffect(() => {
+    if (items && items.length) fetchCritics(items.map((x) => ({ name: x.name, kind: "wine" })));
+  }, [key]);
+  return null;
+}
+function T100Badges({ matches, onOpen }) {
+  if (!matches || !matches.length) return null;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }} onClick={(ev) => ev.stopPropagation()}>
+      {matches.map((m, i) => {
+        const exact = m.sameVintage === true;
+        return (
+          <button key={i} onClick={() => onOpen && onOpen(m.list.id, m.item.rank)}
+            title={m.list.title + (exact ? "" : " — 목록의 빈티지: " + (m.listVint || "?"))}
+            style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, cursor: "pointer", whiteSpace: "nowrap",
+              border: `1px solid ${C.gold}`, background: exact ? C.gold : "transparent",
+              color: exact ? "#1B160C" : C.gold, fontWeight: 700 }}>
+            🏆 {m.list.short} #{m.item.rank}
+            {!exact && m.listVint ? <span style={{ fontWeight: 400 }}> · {m.listVint}{m.sameVintage === false ? " 빈티지" : ""}</span> : null}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -3371,6 +3452,51 @@ function App() {
   }
 
   const [pendingDelete, setPendingDelete] = useState(null); // {entry, timer}
+  // ---------- TOP 100 ----------
+  const [top100, setTop100] = useState(() => readLS(T100_LS, null));
+  const [t100List, setT100List] = useState(null);   // 선택한 목록 id
+  const [t100Q, setT100Q] = useState("");
+  const [t100Shown, setT100Shown] = useState(20);
+  const [t100Focus, setT100Focus] = useState(null);  // {list, rank} 배지에서 들어왔을 때 강조
+  useEffect(() => {
+    // 레포에 함께 배포되는 목록 파일. 실패하면 기기에 저장해 둔 지난 목록 사용
+    fetch("top100.json?v=" + APP_VERSION, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d && d.lists) { setTop100(d); writeLS(T100_LS, d); } })
+      .catch(() => {});
+  }, []);
+  const t100Idx = useMemo(() => t100BuildIndex(top100), [top100]);
+  const t100Cache = useRef({});
+  function t100For(name) {
+    if (!name || !t100Idx.length) return [];
+    const k = String(name);
+    if (!t100Cache.current[k]) t100Cache.current[k] = t100MatchName(k, t100Idx);
+    return t100Cache.current[k];
+  }
+  useEffect(() => { t100Cache.current = {}; }, [t100Idx]);
+  function openT100(listId, rank) {
+    setT100List(listId); setT100Q(""); setT100Shown((n) => Math.max(n, rank + 5));
+    setT100Focus({ list: listId, rank });
+    setTab("top100");
+    setTimeout(() => {
+      try { const el = document.getElementById("t100-" + listId + "-" + rank); el && el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+    }, 200);
+  }
+  function t100Analyze(it) {
+    setTab("add"); setAnalyzeMode("single"); setText(it.name);
+    setTimeout(() => analyzeOne(it.name, "wine"), 0);
+  }
+  function t100Wish(list, it) {
+    if (findInCellar(it.name)) { showToast("이미 셀러/위시리스트에 있어요", "error"); return; }
+    const entry = {
+      id: Date.now() + Math.floor(Math.random() * 1000), date: kstNow(),
+      name: it.name, kind: "wine", resembles: `${list.short} #${it.rank}`,
+      predictedScore: null, reason: "", myScore: null, image: "", status: "wishlist",
+      axes: null, subtype: "", nameKo: "", infoUncertain: false,
+      info: infoWithCritics(null, it.name),
+    };
+    queueSave(entry, { needDetail: { name: it.name, kind: "wine" }, mode: "rec", doneMsg: "위시리스트에 담음" });
+  }
   // 휴지통: 지운 기록은 서버 trash 시트에 30일 보관 후 영구 삭제(v1.67). null=아직 모름, false=구버전 서버
   const [trash, setTrash] = useState(null);
   const [showTrash, setShowTrash] = useState(false);
@@ -4300,6 +4426,7 @@ function App() {
                           {it.nameKo && it.nameKo !== it.name && (
                             <div style={{ fontSize: 11, color: C.sub, marginTop: -1, marginBottom: 2 }}>{it.nameKo}</div>
                           )}
+                          <T100Badges matches={t100For(it.name)} onOpen={openT100} />
                           <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.4 }}>{it.why}</div>
                           {it.where && (
                             <div style={{ fontSize: 11, color: C.goldDim, marginTop: 3,
@@ -4451,6 +4578,7 @@ function App() {
                       <div style={{ fontSize: 12, color: C.sub, marginTop: 1 }}>{result.nameKo}</div>
                     )}
                     <CriticBadges c={criticsFor(result.name, result.critics, result.bottle)} onRetry={() => retryCritics(result.name, result.kind)} />
+                    <T100Badges matches={t100For(result.name)} onOpen={openT100} />
                   </div>
                 </div>
                 <BottleThumb c={criticsFor(result.name, result.critics, result.bottle)} h={240} wide />
@@ -4868,6 +4996,7 @@ function App() {
                       <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.4, marginTop: 4 }}>{safeStr(e.resembles)}</div>
                     )}
                     <CriticBadges c={cellarCritics(e)} quiet />
+                    <T100Badges matches={t100For(e.name)} onOpen={openT100} />
                     {/* 내 점수(없으면 예측) — 전문가 평점 바로 아래 */}
                     {(e.myScore != null || e.predictedScore != null) && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
@@ -5005,8 +5134,8 @@ function App() {
                         ❖ 피드에 공유
                       </button>
                     )}
-                    {/* 퀴즈로 (와인·위스키 모두) */}
-                    {(
+                    {/* 퀴즈로 (와인·위스키 모두) — 퀴즈 탭을 숨긴 동안은 숨김 */}
+                    {SHOW_QUIZ && (
                       <button onClick={() => quizFromCellar(e)}
                         style={{ marginBottom: 10, marginLeft: 6, padding: "6px 12px", fontSize: 12,
                           background: "transparent", color: C.gold, border: `1px solid ${C.goldDim}`,
@@ -5565,6 +5694,7 @@ function App() {
                   </div>
                   <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{r.why}</div>
                   <CriticBadges c={criticsFor(r.name)} onRetry={() => retryCritics(r.name, r.kind)} />
+                  <T100Badges matches={t100For(r.name)} onOpen={openT100} />
                   {r.predictedScore != null && (
                     <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>예측 점수는 추정값입니다</div>
                   )}
@@ -5668,6 +5798,99 @@ function App() {
           </section>
         )}
 
+        {tab === "top100" && (() => {
+          const lists = (top100 && top100.lists) || [];
+          if (!lists.length) return (
+            <section><div style={{ textAlign: "center", color: C.sub, padding: "40px 10px", fontSize: 13 }}>
+              목록을 불러오는 중이거나 아직 없어요.</div></section>
+          );
+          const list = lists.find((l) => l.id === t100List) || lists[0];
+          const q = t100Q.trim();
+          const items = (list.items || []).filter((it) => !q ||
+            matchSearch({ name: it.name, nameKo: "", info: { region: [it.country, it.region].join(" ") }, subtype: it.color || "" }, q));
+          const shown = items.slice(0, t100Shown);
+          return (
+            <section>
+              <div style={{ fontFamily: "Georgia, serif", fontSize: 20, color: C.gold, letterSpacing: 3, marginBottom: 12 }}>TOP 100</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                {lists.map((l) => {
+                  const sel = l.id === list.id;
+                  return (
+                    <button key={l.id} onClick={() => { setT100List(l.id); setT100Shown(20); setT100Q(""); setT100Focus(null); }}
+                      style={{ padding: "7px 12px", borderRadius: 16, fontSize: 12, cursor: "pointer",
+                        background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
+                        border: `1px solid ${sel ? C.gold : C.line}`, fontWeight: sel ? 700 : 400 }}>{l.short}</button>
+                  );
+                })}
+              </div>
+              <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
+                <div style={{ fontSize: 14, color: C.text, fontFamily: "Georgia, serif" }}>{list.title}</div>
+                <div style={{ fontSize: 11, color: C.sub, marginTop: 3, lineHeight: 1.5 }}>
+                  {list.date} 발표 · {list.note}{" "}
+                  <a href={list.url} target="_blank" rel="noopener noreferrer" style={{ color: C.goldDim }}>원문 ↗</a>
+                </div>
+                {(top100.upcoming || []).length > 0 && (
+                  <div style={{ fontSize: 11, color: C.goldDim, marginTop: 6, lineHeight: 1.5 }}>
+                    {top100.upcoming.map((u, i) => <div key={i}>· {u.title}: {u.note}</div>)}
+                  </div>
+                )}
+              </div>
+              {(list.items || []).length > 12 && (
+                <input value={t100Q} onChange={(e) => { setT100Q(e.target.value); setT100Shown(20); }}
+                  placeholder="찾기 (예: 바롤로, 샤르도네, 보르도)"
+                  style={{ width: "100%", boxSizing: "border-box", background: C.panel, border: `1px solid ${C.line}`,
+                    borderRadius: 10, color: C.text, padding: "10px 12px", fontSize: 14, marginBottom: 10 }} />
+              )}
+              <T100Photos items={shown} fetchCritics={fetchCritics} />
+              {shown.map((it) => {
+                const focus = t100Focus && t100Focus.list === list.id && t100Focus.rank === it.rank;
+                const owned = findInCellar(it.name);
+                return (
+                  <div key={it.rank} id={"t100-" + list.id + "-" + it.rank}
+                    style={{ background: C.panel, border: `1px solid ${focus ? C.gold : C.line}`, borderRadius: 14,
+                      padding: 14, marginBottom: 10, display: "flex", gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                        <span style={{ fontFamily: "Georgia, serif", fontSize: 22, color: C.gold, fontWeight: 700 }}>{it.rank}</span>
+                        {it.score != null && <span style={{ fontSize: 12, color: C.gold, fontWeight: 700 }}>{it.score}점</span>}
+                        {it.price && <span style={{ fontSize: 11, color: C.sub }}>{it.price} (미국 출시가)</span>}
+                      </div>
+                      <div style={{ fontFamily: "Georgia, serif", fontSize: 15, color: C.text, lineHeight: 1.3, marginTop: 2 }}>
+                        {it.producer ? (<><b>{it.producer}</b> {it.wine}</>) : it.name}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>
+                        {[it.color, it.country, it.region].filter(Boolean).join(" · ")}
+                        {owned && <span style={{ color: C.gold }}> · {owned.status === "wishlist" ? "위시에 있음" : "셀러에 있음"}</span>}
+                      </div>
+                      <CriticBadges c={criticsFor(it.name)} quiet />
+                      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                        <button onClick={() => t100Analyze(it)}
+                          style={{ padding: "5px 12px", fontSize: 12, borderRadius: 8, background: "transparent",
+                            color: C.gold, border: `1px solid ${C.goldDim}`, cursor: "pointer" }}>✦ 내 취향 분석</button>
+                        {!owned && (
+                          <button onClick={() => t100Wish(list, it)}
+                            style={{ padding: "5px 12px", fontSize: 12, borderRadius: 8, background: "transparent",
+                              color: C.sub, border: `1px solid ${C.line}`, cursor: "pointer" }}>+ 위시</button>
+                        )}
+                      </div>
+                    </div>
+                    <BottleThumb c={criticsFor(it.name)} h={110} w={80} />
+                  </div>
+                );
+              })}
+              {items.length > shown.length && (
+                <button onClick={() => setT100Shown((n) => n + 20)}
+                  style={{ width: "100%", padding: 11, background: "transparent", color: C.gold,
+                    border: `1px solid ${C.goldDim}`, borderRadius: 10, fontSize: 13, cursor: "pointer", marginBottom: 10 }}>
+                  더 보기 ({shown.length}/{items.length})
+                </button>
+              )}
+              {q && items.length === 0 && (
+                <div style={{ textAlign: "center", color: C.sub, padding: "20px", fontSize: 13 }}>"{q}"에 해당하는 와인이 없어요.</div>
+              )}
+            </section>
+          );
+        })()}
         {tab === "quiz" && (
           <section>
             {/* 반응형: 넓은 화면(태블릿 가로)에서 2단 */}
@@ -6582,7 +6805,8 @@ function App() {
 
       <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 40, background: C.panel,
         borderTop: `1px solid ${C.line}`, display: "flex", maxWidth: 560, margin: "0 auto" }}>
-        {[["feed", "피드", "❖"], ["add", "분석", "✦"], ["cellar", "셀러", "▤"], ["recommend", "추천", "✧"], ["quiz", "퀴즈", "◈"]].map(
+        {[["feed", "피드", "❖"], ["add", "분석", "✦"], ["cellar", "셀러", "▤"], ["recommend", "추천", "✧"],
+          SHOW_QUIZ ? ["quiz", "퀴즈", "◈"] : ["top100", "TOP 100", "♛"]].map(
           ([id, label, icon]) => (
             <button key={id} onClick={() => setTab(id)}
               style={{ flex: 1, padding: "14px 0", background: "none", border: "none",

@@ -1,0 +1,1357 @@
+{
+ "updated": "2026-11-04",
+ "lists": [
+  {
+   "id": "js-world-2026",
+   "pub": "JS",
+   "short": "JS 월드 2026",
+   "title": "James Suckling Top 100 World Wines 2026",
+   "date": "2026-10-30",
+   "url": "https://www.jamessuckling.com/wine-tasting-reports/top-100-world-wines-2026-finessing-the-details",
+   "complete": false,
+   "note": "무료 공개된 Top 10만 수록(11~100위는 유료 회원 전용). 100종 모두 99~100점.",
+   "items": [
+    {
+     "rank": 1,
+     "name": "Château de Beaucastel Châteauneuf-du-Pape 2024",
+     "country": "France",
+     "region": "Rhône"
+    },
+    {
+     "rank": 2,
+     "name": "Eredi Fuligni Brunello di Montalcino 2021",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 3,
+     "name": "Robert Weil Riesling Rheingau Kiedrich Gräfenberg Spätlese 2025",
+     "country": "Germany",
+     "region": "Rheingau"
+    },
+    {
+     "rank": 4,
+     "name": "Figgins Walla Walla Valley Estate Red 2023",
+     "country": "United States",
+     "region": "Washington"
+    },
+    {
+     "rank": 5,
+     "name": "Leeuwin Estate Chardonnay Margaret River Art Series 2023",
+     "country": "Australia",
+     "region": "Margaret River"
+    },
+    {
+     "rank": 6,
+     "name": "Niepoort Vintage Port 2024",
+     "country": "Portugal",
+     "region": "Douro"
+    },
+    {
+     "rank": 7,
+     "name": "Catena Zapata Chardonnay Mendoza Adrianna Vineyard White Stones 2024",
+     "country": "Argentina",
+     "region": "Mendoza"
+    },
+    {
+     "rank": 8,
+     "name": "Kistler Chardonnay Napa Valley Carneros Hyde Vineyard 2024",
+     "country": "United States",
+     "region": "California",
+     "score": 100
+    },
+    {
+     "rank": 9,
+     "name": "Château Pavie-Macquin St.-Emilion 2023",
+     "country": "France",
+     "region": "Bordeaux"
+    },
+    {
+     "rank": 10,
+     "name": "Charles Heidsieck Champagne Blanc des Millénaires Brut 2017",
+     "country": "France",
+     "region": "Champagne"
+    }
+   ]
+  },
+  {
+   "id": "js-france-2026",
+   "pub": "JS",
+   "short": "JS 프랑스 2026",
+   "title": "James Suckling Top 100 Wines of France 2026",
+   "date": "2026-10-08",
+   "url": "https://www.jamessuckling.com/wine-tasting-reports/top-100-wines-of-france-2026-greatness-in-the-bottle",
+   "complete": false,
+   "note": "무료 공개된 Top 10만 수록. 선정 기준 97점 이상·400달러 이하.",
+   "items": [
+    {
+     "rank": 1,
+     "name": "Château de Beaucastel Châteauneuf-du-Pape 2024",
+     "country": "France",
+     "region": "Rhône"
+    },
+    {
+     "rank": 2,
+     "name": "Charles Heidsieck Champagne Blanc des Millénaires Brut 2017",
+     "country": "France",
+     "region": "Champagne"
+    },
+    {
+     "rank": 3,
+     "name": "Château d'Yquem Sauternes 2023",
+     "country": "France",
+     "region": "Bordeaux"
+    },
+    {
+     "rank": 4,
+     "name": "Château Trottevieille St.-Emilion 2023",
+     "country": "France",
+     "region": "Bordeaux"
+    },
+    {
+     "rank": 5,
+     "name": "Château Pavie-Macquin St.-Emilion 2023",
+     "country": "France",
+     "region": "Bordeaux"
+    },
+    {
+     "rank": 6,
+     "name": "Domaine A. Clape Cornas 2023",
+     "country": "France",
+     "region": "Rhône"
+    },
+    {
+     "rank": 7,
+     "name": "Château Montrose St.-Estèphe 2023",
+     "country": "France",
+     "region": "Bordeaux",
+     "score": 100
+    },
+    {
+     "rank": 8,
+     "name": "M. Chapoutier Côte-Rôtie Neve 2023",
+     "country": "France",
+     "region": "Rhône"
+    },
+    {
+     "rank": 9,
+     "name": "Château Pichon Longueville Comtesse de Lalande Pauillac 2023",
+     "country": "France",
+     "region": "Bordeaux"
+    },
+    {
+     "rank": 10,
+     "name": "Pierre Paillard Champagne Bouzy Grand Cru Les Mottelettes Blanc de Blancs 2021",
+     "country": "France",
+     "region": "Champagne"
+    }
+   ]
+  },
+  {
+   "id": "js-italy-2026",
+   "pub": "JS",
+   "short": "JS 이탈리아 2026",
+   "title": "James Suckling Top 100 Wines of Italy 2026",
+   "date": "2026-09-16",
+   "url": "https://www.jamessuckling.com/wine-tasting-reports/top-100-wines-of-italy-2026-pride-of-place",
+   "complete": false,
+   "note": "무료 공개분(1~11위, 15위)만 수록. 400달러 미만·약 250케이스 이상 생산 와인 위주.",
+   "items": [
+    {
+     "rank": 1,
+     "name": "Eredi Fuligni Brunello di Montalcino 2021",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 2,
+     "name": "San Filippo Brunello di Montalcino Le Lucere 2021",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 3,
+     "name": "Roberto Voerzio Barolo Brunate 2022",
+     "country": "Italy",
+     "region": "Piedmont"
+    },
+    {
+     "rank": 4,
+     "name": "Cantina Terlano Alto Adige Terlaner I Grande Cuvée 2023",
+     "country": "Italy",
+     "region": "Alto Adige"
+    },
+    {
+     "rank": 5,
+     "name": "Tenuta San Guido Bolgheri Sassicaia 2023",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 6,
+     "name": "G.B. Burlotto Barolo 2022",
+     "country": "Italy",
+     "region": "Piedmont"
+    },
+    {
+     "rank": 7,
+     "name": "Giodo Brunello di Montalcino 2021",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 8,
+     "name": "J. Hofstätter Gewürztraminer Alto Adige Vigna Pirchschrait 2016",
+     "country": "Italy",
+     "region": "Alto Adige"
+    },
+    {
+     "rank": 9,
+     "name": "Tenuta delle Terre Nere Etna Rosso Calderara Sottana Prephylloxera La Vigna di Don Peppino 2024",
+     "country": "Italy",
+     "region": "Sicily"
+    },
+    {
+     "rank": 10,
+     "name": "Produttori del Barbaresco Barbaresco Paje Riserva 2021",
+     "country": "Italy",
+     "region": "Piedmont"
+    },
+    {
+     "rank": 11,
+     "name": "Montevertine Toscana Le Pergole Torte 2023",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 15,
+     "name": "San Leonardo Vigneti delle Dolomiti 2021",
+     "country": "Italy",
+     "region": "Trentino"
+    }
+   ]
+  },
+  {
+   "id": "ws-2025",
+   "pub": "WS",
+   "short": "WS 2025",
+   "title": "Wine Spectator Top 100 of 2025",
+   "date": "2025-11-17",
+   "url": "https://top100-list.winespectator.com/",
+   "complete": true,
+   "note": "전체 100종(점수·미국 출시가 포함). 2026년 목록은 11월 중순 발표 예정.",
+   "items": [
+    {
+     "rank": 1,
+     "score": 95,
+     "producer": "Château Giscours",
+     "wine": "Margaux 2022",
+     "name": "Château Giscours Margaux 2022",
+     "price": "$68",
+     "color": "Red",
+     "country": "France",
+     "region": "Bordeaux"
+    },
+    {
+     "rank": 2,
+     "score": 96,
+     "producer": "Aubert",
+     "wine": "Chardonnay Sonoma Coast UV-SL Vineyard 2023",
+     "name": "Aubert Chardonnay Sonoma Coast UV-SL Vineyard 2023",
+     "price": "$100",
+     "color": "White",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 3,
+     "score": 95,
+     "producer": "Ridge",
+     "wine": "Lytton Springs Dry Creek Valley 2023",
+     "name": "Ridge Lytton Springs Dry Creek Valley 2023",
+     "price": "$56",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 4,
+     "score": 96,
+     "producer": "Williams Selyem",
+     "wine": "Pinot Noir Russian River Valley Eastside Road Neighbors 2023",
+     "name": "Williams Selyem Pinot Noir Russian River Valley Eastside Road Neighbors 2023",
+     "price": "$72",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 5,
+     "score": 96,
+     "producer": "Château Beau-Séjour Bécot",
+     "wine": "St.-Emilion 2022",
+     "name": "Château Beau-Séjour Bécot St.-Emilion 2022",
+     "price": "$85",
+     "color": "Red",
+     "country": "France",
+     "region": "Bordeaux"
+    },
+    {
+     "rank": 6,
+     "score": 96,
+     "producer": "Clos Apalta",
+     "wine": "Apalta 2021",
+     "name": "Clos Apalta Apalta 2021",
+     "price": "$170",
+     "color": "Red",
+     "country": "Chile",
+     "region": "Rapel"
+    },
+    {
+     "rank": 7,
+     "score": 94,
+     "producer": "Produttori del Barbaresco",
+     "wine": "Barbaresco 2021",
+     "name": "Produttori del Barbaresco Barbaresco 2021",
+     "price": "$57",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Piedmont"
+    },
+    {
+     "rank": 8,
+     "score": 95,
+     "producer": "Wayfarer",
+     "wine": "Pinot Noir Fort Ross-Seaview Wayfarer Vineyard The Estate 2023",
+     "name": "Wayfarer Pinot Noir Fort Ross-Seaview Wayfarer Vineyard The Estate 2023",
+     "price": "$100",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 9,
+     "score": 95,
+     "producer": "Castello di Ama",
+     "wine": "Chianti Classico San Lorenzo Gran Selezione 2021",
+     "name": "Castello di Ama Chianti Classico San Lorenzo Gran Selezione 2021",
+     "price": "$90",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 10,
+     "score": 94,
+     "producer": "Famille Isabel Ferrando",
+     "wine": "Châteauneuf-du-Pape St.-Préfert 2022",
+     "name": "Famille Isabel Ferrando Châteauneuf-du-Pape St.-Préfert 2022",
+     "price": "$108",
+     "color": "Red",
+     "country": "France",
+     "region": "Rhône"
+    },
+    {
+     "rank": 11,
+     "score": 95,
+     "producer": "Cristom",
+     "wine": "Pinot Noir Eola-Amity Hills Mt. Jefferson Cuvée 2023",
+     "name": "Cristom Pinot Noir Eola-Amity Hills Mt. Jefferson Cuvée 2023",
+     "price": "$50",
+     "color": "Red",
+     "country": "United States",
+     "region": "Oregon"
+    },
+    {
+     "rank": 12,
+     "score": 97,
+     "producer": "Bedrock",
+     "wine": "Bedrock Vineyard Heritage Sonoma Valley 2023",
+     "name": "Bedrock Bedrock Vineyard Heritage Sonoma Valley 2023",
+     "price": "$60",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 13,
+     "score": 96,
+     "producer": "Château Talbot",
+     "wine": "St.-Julien 2022",
+     "name": "Château Talbot St.-Julien 2022",
+     "price": "$68",
+     "color": "Red",
+     "country": "France",
+     "region": "Bordeaux"
+    },
+    {
+     "rank": 14,
+     "score": 95,
+     "producer": "Viticcio",
+     "wine": "Chianti Classico Riserva 2019",
+     "name": "Viticcio Chianti Classico Riserva 2019",
+     "price": "$40",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 15,
+     "score": 95,
+     "producer": "Le Vieux Donjon",
+     "wine": "Châteauneuf-du-Pape 2022",
+     "name": "Le Vieux Donjon Châteauneuf-du-Pape 2022",
+     "price": "$65",
+     "color": "Red",
+     "country": "France",
+     "region": "Rhône"
+    },
+    {
+     "rank": 16,
+     "score": 94,
+     "producer": "Lingua Franca",
+     "wine": "Pinot Noir Willamette Valley Avni 2022",
+     "name": "Lingua Franca Pinot Noir Willamette Valley Avni 2022",
+     "price": "$40",
+     "color": "Red",
+     "country": "United States",
+     "region": "Oregon"
+    },
+    {
+     "rank": 17,
+     "score": 93,
+     "producer": "Ruffino",
+     "wine": "Chianti Classico Ducale Riserva 2021",
+     "name": "Ruffino Chianti Classico Ducale Riserva 2021",
+     "price": "$25",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 18,
+     "score": 93,
+     "producer": "Diatom",
+     "wine": "Chardonnay Santa Barbara County 2024",
+     "name": "Diatom Chardonnay Santa Barbara County 2024",
+     "price": "$25",
+     "color": "White",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 19,
+     "score": 94,
+     "producer": "Penner-Ash",
+     "wine": "Pinot Noir Willamette Valley 2022",
+     "name": "Penner-Ash Pinot Noir Willamette Valley 2022",
+     "price": "$60",
+     "color": "Red",
+     "country": "United States",
+     "region": "Oregon"
+    },
+    {
+     "rank": 20,
+     "score": 93,
+     "producer": "Rimapere",
+     "wine": "Sauvignon Blanc Marlborough Single Vineyard 2024",
+     "name": "Rimapere Sauvignon Blanc Marlborough Single Vineyard 2024",
+     "price": "$30",
+     "color": "White",
+     "country": "New Zealand",
+     "region": "South Island"
+    },
+    {
+     "rank": 21,
+     "score": 95,
+     "producer": "Camigliano",
+     "wine": "Brunello di Montalcino 2020",
+     "name": "Camigliano Brunello di Montalcino 2020",
+     "price": "$60",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 22,
+     "score": 93,
+     "producer": "Patz & Hall",
+     "wine": "Chardonnay Sonoma Coast 2022",
+     "name": "Patz & Hall Chardonnay Sonoma Coast 2022",
+     "price": "$35",
+     "color": "White",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 23,
+     "score": 94,
+     "producer": "Rocca di Frassinello",
+     "wine": "Maremma Toscana Ornello 2023",
+     "name": "Rocca di Frassinello Maremma Toscana Ornello 2023",
+     "price": "$30",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 24,
+     "score": 91,
+     "producer": "Dry Creek",
+     "wine": "Chenin Blanc Clarksburg Dry 2023",
+     "name": "Dry Creek Chenin Blanc Clarksburg Dry 2023",
+     "price": "$18",
+     "color": "White",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 25,
+     "score": 93,
+     "producer": "Carpineto",
+     "wine": "Chianti Classico Riserva 2020",
+     "name": "Carpineto Chianti Classico Riserva 2020",
+     "price": "$29",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 26,
+     "score": 92,
+     "producer": "Viña Tarapacá",
+     "wine": "Cabernet Sauvignon Maipo Valley Etiqueta Negra Gran Reserva 2022",
+     "name": "Viña Tarapacá Cabernet Sauvignon Maipo Valley Etiqueta Negra Gran Reserva 2022",
+     "price": "$34",
+     "color": "Red",
+     "country": "Chile",
+     "region": "Maipo"
+    },
+    {
+     "rank": 27,
+     "score": 90,
+     "producer": "Pine Ridge",
+     "wine": "Chenin Blanc-Viognier American 2024",
+     "name": "Pine Ridge Chenin Blanc-Viognier American 2024",
+     "price": "$16",
+     "color": "White",
+     "country": "United States",
+     "region": "Other US"
+    },
+    {
+     "rank": 28,
+     "score": 90,
+     "producer": "Castello Banfi",
+     "wine": "Toscana Centine 2022",
+     "name": "Castello Banfi Toscana Centine 2022",
+     "price": "$15",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 29,
+     "score": 90,
+     "producer": "Château d'Estoublon",
+     "wine": "Coteaux Varois en Provence Roseblood Rosé 2024",
+     "name": "Château d'Estoublon Coteaux Varois en Provence Roseblood Rosé 2024",
+     "price": "$27",
+     "color": "Rosé",
+     "country": "France",
+     "region": "Provence"
+    },
+    {
+     "rank": 30,
+     "score": 94,
+     "producer": "Château Marquis de Terme",
+     "wine": "Margaux 2022",
+     "name": "Château Marquis de Terme Margaux 2022",
+     "price": "$51",
+     "color": "Red",
+     "country": "France",
+     "region": "Bordeaux"
+    },
+    {
+     "rank": 31,
+     "score": 90,
+     "producer": "Marchesi de' Frescobaldi",
+     "wine": "Chianti Rufina Nipozzano Riserva 2022",
+     "name": "Marchesi de' Frescobaldi Chianti Rufina Nipozzano Riserva 2022",
+     "price": "$20",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 32,
+     "score": 92,
+     "producer": "Massican",
+     "wine": "Annia California 2024",
+     "name": "Massican Annia California 2024",
+     "price": "$32",
+     "color": "White",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 33,
+     "score": 92,
+     "producer": "Loveblock",
+     "wine": "Sauvignon Blanc Marlborough tee 2023",
+     "name": "Loveblock Sauvignon Blanc Marlborough tee 2023",
+     "price": "$34",
+     "color": "White",
+     "country": "New Zealand",
+     "region": "South Island"
+    },
+    {
+     "rank": 34,
+     "score": 93,
+     "producer": "Frequency",
+     "wine": "GSM Santa Barbara County 2023",
+     "name": "Frequency GSM Santa Barbara County 2023",
+     "price": "$36",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 35,
+     "score": 90,
+     "producer": "Primus",
+     "wine": "The Blend Apalta 2022",
+     "name": "Primus The Blend Apalta 2022",
+     "price": "$21",
+     "color": "Red",
+     "country": "Chile",
+     "region": "Rapel"
+    },
+    {
+     "rank": 36,
+     "score": 91,
+     "producer": "Ravines",
+     "wine": "Riesling Finger Lakes Dry 2022",
+     "name": "Ravines Riesling Finger Lakes Dry 2022",
+     "price": "$21",
+     "color": "White",
+     "country": "United States",
+     "region": "New York"
+    },
+    {
+     "rank": 37,
+     "score": 94,
+     "producer": "Ken Wright",
+     "wine": "Pinot Noir Yamhill-Carlton Shea Vineyard 2023",
+     "name": "Ken Wright Pinot Noir Yamhill-Carlton Shea Vineyard 2023",
+     "price": "$65",
+     "color": "Red",
+     "country": "United States",
+     "region": "Oregon"
+    },
+    {
+     "rank": 38,
+     "score": 93,
+     "producer": "Ployez-Jacquemart",
+     "wine": "Brut Champagne Extra Quality NV",
+     "name": "Ployez-Jacquemart Brut Champagne Extra Quality NV",
+     "price": "$56",
+     "color": "White",
+     "country": "France",
+     "region": "Champagne"
+    },
+    {
+     "rank": 39,
+     "score": 93,
+     "producer": "Hartford Family",
+     "wine": "Zinfandel Russian River Valley Old Vine 2022",
+     "name": "Hartford Family Zinfandel Russian River Valley Old Vine 2022",
+     "price": "$50",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 40,
+     "score": 93,
+     "producer": "La Granja Nuestra Señora de Remelluri",
+     "wine": "Rioja Reserva 2016",
+     "name": "La Granja Nuestra Señora de Remelluri Rioja Reserva 2016",
+     "price": "$56",
+     "color": "Red",
+     "country": "Spain",
+     "region": "Spain"
+    },
+    {
+     "rank": 41,
+     "score": 92,
+     "producer": "Stoller",
+     "wine": "Pinot Noir Dundee Hills Estate 2023",
+     "name": "Stoller Pinot Noir Dundee Hills Estate 2023",
+     "price": "$40",
+     "color": "Red",
+     "country": "United States",
+     "region": "Oregon"
+    },
+    {
+     "rank": 42,
+     "score": 93,
+     "producer": "Ravenswood",
+     "wine": "Zinfandel Dry Creek Valley 2023",
+     "name": "Ravenswood Zinfandel Dry Creek Valley 2023",
+     "price": "$27",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 43,
+     "score": 90,
+     "producer": "Lamadrid",
+     "wine": "Malbec Agrelo Single Vineyard Reserva 2023",
+     "name": "Lamadrid Malbec Agrelo Single Vineyard Reserva 2023",
+     "price": "$20",
+     "color": "Red",
+     "country": "Argentina",
+     "region": "Mendoza"
+    },
+    {
+     "rank": 44,
+     "score": 95,
+     "producer": "Burn Cottage",
+     "wine": "Pinot Noir Central Otago Moonlight Race 2023",
+     "name": "Burn Cottage Pinot Noir Central Otago Moonlight Race 2023",
+     "price": "$50",
+     "color": "Red",
+     "country": "New Zealand",
+     "region": "South Island"
+    },
+    {
+     "rank": 45,
+     "score": 97,
+     "producer": "Castello di Monsanto",
+     "wine": "Chianti Classico San Donato in Poggio Il Poggio Gran Selezione 2020",
+     "name": "Castello di Monsanto Chianti Classico San Donato in Poggio Il Poggio Gran Selezione 2020",
+     "price": "$85",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 46,
+     "score": 94,
+     "producer": "Dehlinger",
+     "wine": "Pinot Noir Russian River Valley Estate 2023",
+     "name": "Dehlinger Pinot Noir Russian River Valley Estate 2023",
+     "price": "$50",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 47,
+     "score": 94,
+     "producer": "Château de St.-Cosme",
+     "wine": "Gigondas 2022",
+     "name": "Château de St.-Cosme Gigondas 2022",
+     "price": "$65",
+     "color": "Red",
+     "country": "France",
+     "region": "Rhône"
+    },
+    {
+     "rank": 48,
+     "score": 90,
+     "producer": "Symington Family",
+     "wine": "Douro Altano 2022",
+     "name": "Symington Family Douro Altano 2022",
+     "price": "$13",
+     "color": "Red",
+     "country": "Portugal",
+     "region": "Portugal"
+    },
+    {
+     "rank": 49,
+     "score": 91,
+     "producer": "Ken Forrester",
+     "wine": "Chenin Blanc Stellenbosch Old Vine Reserve 2024",
+     "name": "Ken Forrester Chenin Blanc Stellenbosch Old Vine Reserve 2024",
+     "price": "$21",
+     "color": "White",
+     "country": "South Africa",
+     "region": "Coastal Region"
+    },
+    {
+     "rank": 50,
+     "score": 94,
+     "producer": "Cheval des Andes",
+     "wine": "Mendoza 2022",
+     "name": "Cheval des Andes Mendoza 2022",
+     "price": "$100",
+     "color": "Red",
+     "country": "Argentina",
+     "region": "Mendoza"
+    },
+    {
+     "rank": 51,
+     "score": 92,
+     "producer": "Caterwaul",
+     "wine": "Cabernet Sauvignon Napa Valley 2023",
+     "name": "Caterwaul Cabernet Sauvignon Napa Valley 2023",
+     "price": "$55",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 52,
+     "score": 96,
+     "producer": "Il Poggione",
+     "wine": "Brunello di Montalcino Vigna Paganelli Riserva 2019",
+     "name": "Il Poggione Brunello di Montalcino Vigna Paganelli Riserva 2019",
+     "price": "$145",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Tuscany"
+    },
+    {
+     "rank": 53,
+     "score": 95,
+     "producer": "Epoch",
+     "wine": "Veracity Paso Robles Willow Creek District 2021",
+     "name": "Epoch Veracity Paso Robles Willow Creek District 2021",
+     "price": "$75",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 54,
+     "score": 92,
+     "producer": "Claude Riffault",
+     "wine": "Sancerre Les Boucauds 2023",
+     "name": "Claude Riffault Sancerre Les Boucauds 2023",
+     "price": "$40",
+     "color": "White",
+     "country": "France",
+     "region": "Loire"
+    },
+    {
+     "rank": 55,
+     "score": 95,
+     "producer": "Damilano",
+     "wine": "Barolo Cannubi 2021",
+     "name": "Damilano Barolo Cannubi 2021",
+     "price": "$97",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Piedmont"
+    },
+    {
+     "rank": 56,
+     "score": 91,
+     "producer": "Venus La Universal",
+     "wine": "Montsant Dido La Universal 2021",
+     "name": "Venus La Universal Montsant Dido La Universal 2021",
+     "price": "$25",
+     "color": "Red",
+     "country": "Spain",
+     "region": "Spain"
+    },
+    {
+     "rank": 57,
+     "score": 93,
+     "producer": "Graham",
+     "wine": "Tawny Port 20 Year Old NV",
+     "name": "Graham Tawny Port 20 Year Old NV",
+     "price": "$80",
+     "color": "NA",
+     "country": "Portugal",
+     "region": "Portugal"
+    },
+    {
+     "rank": 58,
+     "score": 92,
+     "producer": "Masút",
+     "wine": "Pinot Noir Eagle Peak Estate Vineyard 2023",
+     "name": "Masút Pinot Noir Eagle Peak Estate Vineyard 2023",
+     "price": "$47",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 59,
+     "score": 91,
+     "producer": "Bodegas y Viñedos Artuke",
+     "wine": "Rioja Pies Rotos 2022",
+     "name": "Bodegas y Viñedos Artuke Rioja Pies Rotos 2022",
+     "price": "$23",
+     "color": "Red",
+     "country": "Spain",
+     "region": "Spain"
+    },
+    {
+     "rank": 60,
+     "score": 92,
+     "producer": "Newfound",
+     "wine": "Gravels California 2022",
+     "name": "Newfound Gravels California 2022",
+     "price": "$30",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 61,
+     "score": 91,
+     "producer": "BiancaVigna",
+     "wine": "Brut Conegliano Valdobbiadene Prosecco Superiore 2023",
+     "name": "BiancaVigna Brut Conegliano Valdobbiadene Prosecco Superiore 2023",
+     "price": "$23",
+     "color": "White",
+     "country": "Italy",
+     "region": "Northeast"
+    },
+    {
+     "rank": 62,
+     "score": 90,
+     "producer": "Te Pa",
+     "wine": "Sauvignon Blanc Marlborough 2024",
+     "name": "Te Pa Sauvignon Blanc Marlborough 2024",
+     "price": "$21",
+     "color": "White",
+     "country": "New Zealand",
+     "region": "South Island"
+    },
+    {
+     "rank": 63,
+     "score": 91,
+     "producer": "Bodegas Alto Moncayo",
+     "wine": "Garnacha-Tempranillo Campo de Borja Barambán Edición Limitada 2022",
+     "name": "Bodegas Alto Moncayo Garnacha-Tempranillo Campo de Borja Barambán Edición Limitada 2022",
+     "price": "$27",
+     "color": "Red",
+     "country": "Spain",
+     "region": "Spain"
+    },
+    {
+     "rank": 64,
+     "score": 93,
+     "producer": "Famiglia Cotarella",
+     "wine": "Lazio Montiano 2021",
+     "name": "Famiglia Cotarella Lazio Montiano 2021",
+     "price": "$80",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Lazio"
+    },
+    {
+     "rank": 65,
+     "score": 90,
+     "producer": "Raíces Ibéricas",
+     "wine": "Garnacha-Syrah Calatayud Las Pizarrras Fabla #506 2023",
+     "name": "Raíces Ibéricas Garnacha-Syrah Calatayud Las Pizarrras Fabla #506 2023",
+     "price": "$18",
+     "color": "Red",
+     "country": "Spain",
+     "region": "Spain"
+    },
+    {
+     "rank": 66,
+     "score": 95,
+     "producer": "Melville",
+     "wine": "Pinot Noir Sta. Rita Hills Sandy's Block 2023",
+     "name": "Melville Pinot Noir Sta. Rita Hills Sandy's Block 2023",
+     "price": "$74",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 67,
+     "score": 91,
+     "producer": "Matteo Ascheri",
+     "wine": "Barolo 2021",
+     "name": "Matteo Ascheri Barolo 2021",
+     "price": "$50",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Piedmont"
+    },
+    {
+     "rank": 68,
+     "score": 90,
+     "producer": "Albert Bichot",
+     "wine": "Bourgogne Origines 2023",
+     "name": "Albert Bichot Bourgogne Origines 2023",
+     "price": "$26",
+     "color": "Red",
+     "country": "France",
+     "region": "Burgundy"
+    },
+    {
+     "rank": 69,
+     "score": 90,
+     "producer": "Paula Kornell",
+     "wine": "Brut California NV",
+     "name": "Paula Kornell Brut California NV",
+     "price": "$22",
+     "color": "White",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 70,
+     "score": 90,
+     "producer": "Cantine Lunae Bosoni",
+     "wine": "Vermentino Colli di Luni-Liguria Grey Label 2023",
+     "name": "Cantine Lunae Bosoni Vermentino Colli di Luni-Liguria Grey Label 2023",
+     "price": "$28",
+     "color": "White",
+     "country": "Italy",
+     "region": "Liguria"
+    },
+    {
+     "rank": 71,
+     "score": 92,
+     "producer": "Familia Zuccardi",
+     "wine": "Botánico Gualtallary 2024",
+     "name": "Familia Zuccardi Botánico Gualtallary 2024",
+     "price": "$78",
+     "color": "White",
+     "country": "Argentina",
+     "region": "Mendoza"
+    },
+    {
+     "rank": 72,
+     "score": 92,
+     "producer": "Clos Ste.-Magdeleine",
+     "wine": "Cassis 2023",
+     "name": "Clos Ste.-Magdeleine Cassis 2023",
+     "price": "$45",
+     "color": "White",
+     "country": "France",
+     "region": "Provence"
+    },
+    {
+     "rank": 73,
+     "score": 90,
+     "producer": "Sleight of Hand",
+     "wine": "The Spellbinder Columbia Valley 2022",
+     "name": "Sleight of Hand The Spellbinder Columbia Valley 2022",
+     "price": "$25",
+     "color": "Red",
+     "country": "United States",
+     "region": "Washington"
+    },
+    {
+     "rank": 74,
+     "score": 90,
+     "producer": "Marisco",
+     "wine": "Pinot Gris Marlborough The Ned 2024",
+     "name": "Marisco Pinot Gris Marlborough The Ned 2024",
+     "price": "$17",
+     "color": "White",
+     "country": "New Zealand",
+     "region": "South Island"
+    },
+    {
+     "rank": 75,
+     "score": 91,
+     "producer": "Graci",
+     "wine": "Etna Rosato 2024",
+     "name": "Graci Etna Rosato 2024",
+     "price": "$30",
+     "color": "Rosé",
+     "country": "Italy",
+     "region": "Sicily"
+    },
+    {
+     "rank": 76,
+     "score": 95,
+     "producer": "Bodega Catena Zapata",
+     "wine": "Malbec Paraje Altamira Nicasia Vineyard 2023",
+     "name": "Bodega Catena Zapata Malbec Paraje Altamira Nicasia Vineyard 2023",
+     "price": "$120",
+     "color": "Red",
+     "country": "Argentina",
+     "region": "Mendoza"
+    },
+    {
+     "rank": 77,
+     "score": 94,
+     "producer": "Barnett",
+     "wine": "Merlot Spring Mountain District 2022",
+     "name": "Barnett Merlot Spring Mountain District 2022",
+     "price": "$80",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 78,
+     "score": 90,
+     "producer": "Conte Vistarino",
+     "wine": "Pinot Nero dell'Otrepò Pavese Costa del Nero 2022",
+     "name": "Conte Vistarino Pinot Nero dell'Otrepò Pavese Costa del Nero 2022",
+     "price": "$29",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Lombardy"
+    },
+    {
+     "rank": 79,
+     "score": 92,
+     "producer": "Domaine Michel Magnien",
+     "wine": "Bourgogne Côte d'Or 2022",
+     "name": "Domaine Michel Magnien Bourgogne Côte d'Or 2022",
+     "price": "$45",
+     "color": "Red",
+     "country": "France",
+     "region": "Burgundy"
+    },
+    {
+     "rank": 80,
+     "score": 92,
+     "producer": "Foradori",
+     "wine": "Manzoni Bianco Vigneti delle Dolomiti Fontanasanta 2023",
+     "name": "Foradori Manzoni Bianco Vigneti delle Dolomiti Fontanasanta 2023",
+     "price": "$38",
+     "color": "White",
+     "country": "Italy",
+     "region": "Trentino/Alto Adige"
+    },
+    {
+     "rank": 81,
+     "score": 94,
+     "producer": "Bodegas Protos",
+     "wine": "Ribera del Duero Carroa 2021",
+     "name": "Bodegas Protos Ribera del Duero Carroa 2021",
+     "price": "$70",
+     "color": "Red",
+     "country": "Spain",
+     "region": "Spain"
+    },
+    {
+     "rank": 82,
+     "score": 94,
+     "producer": "Duckhorn",
+     "wine": "Merlot Napa Valley Three Palms Vineyard 2022",
+     "name": "Duckhorn Merlot Napa Valley Three Palms Vineyard 2022",
+     "price": "$140",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 83,
+     "score": 94,
+     "producer": "Domaine de la Vieille Julienne",
+     "wine": "Châteauneuf-du-Pape Les Trois Sources 2022",
+     "name": "Domaine de la Vieille Julienne Châteauneuf-du-Pape Les Trois Sources 2022",
+     "price": "$89",
+     "color": "Red",
+     "country": "France",
+     "region": "Rhône"
+    },
+    {
+     "rank": 84,
+     "score": 95,
+     "producer": "Etude",
+     "wine": "Cabernet Sauvignon Rutherford 2021",
+     "name": "Etude Cabernet Sauvignon Rutherford 2021",
+     "price": "$155",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 85,
+     "score": 97,
+     "producer": "Château Smith-Haut-Lafitte",
+     "wine": "Pessac-Léognan White 2022",
+     "name": "Château Smith-Haut-Lafitte Pessac-Léognan White 2022",
+     "price": "$169",
+     "color": "White",
+     "country": "France",
+     "region": "Bordeaux"
+    },
+    {
+     "rank": 86,
+     "score": 90,
+     "producer": "Dr. Loosen",
+     "wine": "Riesling Kabinett Mosel Erdener Treppchen 2023",
+     "name": "Dr. Loosen Riesling Kabinett Mosel Erdener Treppchen 2023",
+     "price": "$28",
+     "color": "White",
+     "country": "Germany",
+     "region": "Germany"
+    },
+    {
+     "rank": 87,
+     "score": 93,
+     "producer": "Bosquet des Papes",
+     "wine": "Châteauneuf-du-Pape 2022",
+     "name": "Bosquet des Papes Châteauneuf-du-Pape 2022",
+     "price": "$65",
+     "color": "Red",
+     "country": "France",
+     "region": "Rhône"
+    },
+    {
+     "rank": 88,
+     "score": 93,
+     "producer": "Comando G",
+     "wine": "Vinos de Madrid Sierra de Gredos Rozas de Puerto Real Valle del Tiétar 2023",
+     "name": "Comando G Vinos de Madrid Sierra de Gredos Rozas de Puerto Real Valle del Tiétar 2023",
+     "price": "$69",
+     "color": "Red",
+     "country": "Spain",
+     "region": "Spain"
+    },
+    {
+     "rank": 89,
+     "score": 94,
+     "producer": "Reynvaan",
+     "wine": "Syrah Walla Walla Valley In The Rocks 2022",
+     "name": "Reynvaan Syrah Walla Walla Valley In The Rocks 2022",
+     "price": "$100",
+     "color": "Red",
+     "country": "United States",
+     "region": "Washington"
+    },
+    {
+     "rank": 90,
+     "score": 93,
+     "producer": "Jean-Louis Chave Sélection",
+     "wine": "St.-Joseph White Circa 2022",
+     "name": "Jean-Louis Chave Sélection St.-Joseph White Circa 2022",
+     "price": "$41",
+     "color": "White",
+     "country": "France",
+     "region": "Rhône"
+    },
+    {
+     "rank": 91,
+     "score": 92,
+     "producer": "Hugh Hamilton",
+     "wine": "Shiraz-Saperavi South Australia Black Ops 2021",
+     "name": "Hugh Hamilton Shiraz-Saperavi South Australia Black Ops 2021",
+     "price": "$30",
+     "color": "Red",
+     "country": "Australia",
+     "region": "South Australia"
+    },
+    {
+     "rank": 92,
+     "score": 94,
+     "producer": "Tenute Capaldo",
+     "wine": "Taurasi Gulielmus Riserva 2018",
+     "name": "Tenute Capaldo Taurasi Gulielmus Riserva 2018",
+     "price": "$90",
+     "color": "Red",
+     "country": "Italy",
+     "region": "Campania"
+    },
+    {
+     "rank": 93,
+     "score": 91,
+     "producer": "Famille Lieubeau",
+     "wine": "Muscadet de Sèvre et Maine Clisson 2022",
+     "name": "Famille Lieubeau Muscadet de Sèvre et Maine Clisson 2022",
+     "price": "$28",
+     "color": "White",
+     "country": "France",
+     "region": "Loire"
+    },
+    {
+     "rank": 94,
+     "score": 91,
+     "producer": "Bernhard Ott",
+     "wine": "Grüner Veltliner Niederösterreich Fass 4 2023",
+     "name": "Bernhard Ott Grüner Veltliner Niederösterreich Fass 4 2023",
+     "price": "$33",
+     "color": "White",
+     "country": "Austria",
+     "region": "Niederösterreich"
+    },
+    {
+     "rank": 95,
+     "score": 95,
+     "producer": "Louis Jadot",
+     "wine": "Beaune Clos des Ursules Héritiers Louis Jadot 2022",
+     "name": "Louis Jadot Beaune Clos des Ursules Héritiers Louis Jadot 2022",
+     "price": "$115",
+     "color": "Red",
+     "country": "France",
+     "region": "Burgundy"
+    },
+    {
+     "rank": 96,
+     "score": 92,
+     "producer": "Bodegas Bhilar",
+     "wine": "Rioja White Bhilar 2022",
+     "name": "Bodegas Bhilar Rioja White Bhilar 2022",
+     "price": "$21",
+     "color": "White",
+     "country": "Spain",
+     "region": "Spain"
+    },
+    {
+     "rank": 97,
+     "score": 90,
+     "producer": "Elderton",
+     "wine": "Cabernet Sauvignon Barossa 2022",
+     "name": "Elderton Cabernet Sauvignon Barossa 2022",
+     "price": "$33",
+     "color": "Red",
+     "country": "Australia",
+     "region": "South Australia"
+    },
+    {
+     "rank": 98,
+     "score": 95,
+     "producer": "Platt Vineyard",
+     "wine": "Pinot Noir West Sonoma Coast Estate Reserve 2023",
+     "name": "Platt Vineyard Pinot Noir West Sonoma Coast Estate Reserve 2023",
+     "price": "$165",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    },
+    {
+     "rank": 99,
+     "score": 93,
+     "producer": "Domaine du Closel",
+     "wine": "Savennières La Jalousie Château des Vaults 2022",
+     "name": "Domaine du Closel Savennières La Jalousie Château des Vaults 2022",
+     "price": "$62",
+     "color": "White",
+     "country": "France",
+     "region": "Loire"
+    },
+    {
+     "rank": 100,
+     "score": 91,
+     "producer": "Freemark Abbey",
+     "wine": "Cabernet Sauvignon Rutherford Cabernet Bosché 2022",
+     "name": "Freemark Abbey Cabernet Sauvignon Rutherford Cabernet Bosché 2022",
+     "price": "$225",
+     "color": "Red",
+     "country": "United States",
+     "region": "California"
+    }
+   ]
+  }
+ ],
+ "upcoming": [
+  {
+   "title": "Wine Spectator Top 100 of 2026",
+   "note": "11월 중순 발표 예정(작년은 11월 17일) — 나오면 추가"
+  },
+  {
+   "title": "Robert Parker Wine Advocate",
+   "note": "연간 Top 100은 없음. 'Top 100 Wine Discoveries'는 2020년판만 확인됨 — 새 판이 나오면 추가"
+  }
+ ]
+}
