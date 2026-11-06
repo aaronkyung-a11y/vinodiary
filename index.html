@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.68";
+const APP_VERSION = "v1.69";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -884,6 +884,8 @@ function readLS(key, def) {
 function writeLS(key, v) {
   try { localStorage.setItem(key, JSON.stringify(v)); return true; } catch (e) { return false; }
 }
+const VD_WHISKY_RE = /whisk|scotch|bourbon|single\s*malt|위스키|버번|싱글\s*몰트|글렌|맥캘란|스프링뱅크|야마자키|히비키|하쿠슈|라프로익|아드벡|탈리스커|발베니|글렌알라키/i;
+function guessKindFromName(n) { return VD_WHISKY_RE.test(String(n || "")) ? "whisky" : "wine"; }
 function shortName(n) { const t = String(n || "").trim(); return t.length > 22 ? t.slice(0, 21) + "…" : t; }
 // 오래 걸리는 작업을 처음 시작할 때 한 번만 알림 권한을 묻는다(거절해도 다시 묻지 않음)
 function askNotifyOnce() {
@@ -1284,6 +1286,8 @@ function App() {
   const [postAuthor, setPostAuthor] = useState("me"); // 새 포스트 작성자
   const [posting, setPosting] = useState(false);
   const [postWineName, setPostWineName] = useState(""); // 연동할 술 이름
+  const [postAdding, setPostAdding] = useState(null);   // '셀러에 담기' 이름 입력 중인 글 id
+  const [postAddName, setPostAddName] = useState("");
   const [postWine, setPostWine] = useState(null); // 분석 결과(axes·예측 등)
   const [postWineLoading, setPostWineLoading] = useState(false);
   const [postWineScore, setPostWineScore] = useState(null); // 이 술에 줄 점수(셀러 반영)
@@ -1968,7 +1972,7 @@ function App() {
   }
 
   async function submitPost() {
-    if (!postText.trim() && !postImageData && !postWine) {
+    if (!postText.trim() && !postImageData && !postWine && !postWineName.trim()) {
       showToast("사진·글·술 중 하나는 넣어 주세요", "error"); return;
     }
     setPosting(true);
@@ -1980,12 +1984,21 @@ function App() {
         if (up && up.ok && up.url) imageUrl = up.url;
       }
       const isMe = postAuthor === "me" || postAuthor === "나";
-      // 술 정보(그래프용)
+      const typedName = postWineName.trim();
+      const entryId = Date.now() + 1;
+      // 이름만 적고 분석은 안 한 경우: 셀러에 이미 있으면 그 기록과 연결만, 없으면 새로 기록(v1.69)
+      const existing = (!postWine && typedName) ? findInCellar(typedName) : null;
+      const linkId = existing && existing.status !== "wishlist" ? existing.id : null;
+      const guessKind = guessKindFromName(typedName);
+      // 술 정보(그래프용) — entryId로 셀러 기록과 연결
       const wine = postWine ? {
         name: postWine.name, nameKo: postWine.nameKo || "", kind: postWine.kind, axes: postWine.axes || null,
         predictedScore: postWine.predictedScore ?? null,
         myScore: postWineScore ?? null,
-        author: postAuthor,
+        author: postAuthor, entryId,
+      } : typedName ? {
+        name: typedName, nameKo: "", kind: guessKind, axes: null, predictedScore: null, myScore: null,
+        author: postAuthor, entryId: linkId != null ? linkId : entryId,
       } : null;
       const post = {
         id: Date.now(),
@@ -1997,10 +2010,10 @@ function App() {
       };
       await savingApi({ action: "addPost", post }, "올렸어요");
 
-      // 술 분석을 붙였으면 셀러에도 기록
+      // 술 분석을 붙였으면 그 결과로 셀러에도 기록 — 저장 대기열 경유(전송 실패해도 기기에 남아 다시 보냄)
       if (postWine) {
         const entry = {
-          id: Date.now() + 1,
+          id: entryId,
           date: kstNow(),
           name: postWine.name, nameKo: postWine.nameKo || "", kind: postWine.kind,
           resembles: safeStr(postWine.resembles || ""),
@@ -2019,7 +2032,19 @@ function App() {
           detail: pickDetail(postWine),
           companions: "", note: postText.trim(),
         };
-        await api({ action: "save", entry });
+        queueSave(entry, { doneMsg: "올렸어요 · 셀러에도 기록" });
+      } else if (typedName && linkId != null) {
+        showToast("올렸어요 · 셀러에 있는 술과 연결했어요", "done");
+      } else if (typedName) {
+        // 분석 없이 이름만: 셀러에 먼저 기록하고 그래프·정보는 뒤에서 채움
+        const entry = {
+          id: entryId, date: kstNow(), name: typedName, nameKo: "", kind: guessKind,
+          resembles: "", predictedScore: null, reason: "", myScore: null, scores: {},
+          image: imageUrl, status: "tasted", axes: null, subtype: "", info: null, infoUncertain: false,
+          companions: "", note: postText.trim(), _fromPost: true,
+        };
+        queueSave(entry, { needDetail: { name: typedName, kind: guessKind }, mode: "post",
+          doneMsg: "올렸어요 · 셀러에도 기록 — 그래프·정보는 잠시 후 채워져요" });
       }
 
       setComposing(false); setPostText(""); setPostImageData(null); setPostImagePreview(null);
@@ -2030,6 +2055,49 @@ function App() {
     } finally {
       setPosting(false);
     }
+  }
+
+  // 피드 글과 연결된 셀러 기록(entryId 우선, 없으면 이름으로)
+  function postCellarEntry(p) {
+    const w = p && p.wine;
+    if (!w) return null;
+    if (w.entryId != null) {
+      const e = entries.find((x) => String(x.id) === String(w.entryId));
+      if (e) return e;
+    }
+    const hit = w.name ? findInCellar(w.name) : null;
+    return hit && hit.status !== "wishlist" ? hit : null;
+  }
+  function addPostToCellar(p, nameIn) {
+    const w0 = p.wine || null;
+    const name = String((w0 && w0.name) || nameIn || "").trim();
+    if (!name) { showToast("술 이름을 적어 주세요", "error"); return; }
+    const ex = findInCellar(name);
+    let entryId;
+    if (ex && ex.status !== "wishlist") {
+      entryId = ex.id;
+      showToast("셀러에 이미 있는 술이라 연결만 했어요", "done");
+    } else {
+      entryId = Date.now() + Math.floor(Math.random() * 1000);
+      const kind = (w0 && w0.kind) || guessKindFromName(name);
+      const byMe = !p.author || p.author === "me" || p.author === "나";
+      const sc = w0 && w0.myScore != null ? w0.myScore : null;
+      const entry = {
+        id: entryId, date: p.date || kstNow(), name, nameKo: (w0 && w0.nameKo) || "", kind,
+        resembles: "", predictedScore: w0 && w0.predictedScore != null ? w0.predictedScore : null, reason: "",
+        myScore: byMe ? sc : null, scores: (!byMe && sc != null) ? { [p.author]: sc } : {},
+        image: p.image || "", status: "tasted", axes: (w0 && w0.axes) || null, subtype: "",
+        info: null, infoUncertain: false, companions: "", note: p.text || "",
+        _fromPost: !(w0 && w0.axes), // 분석 안 된 이름이면 상세의 정식 이름·종류로 교체
+      };
+      queueSave(entry, { needDetail: { name, kind }, mode: "post",
+        doneMsg: "셀러에 담았어요 — 그래프·정보는 잠시 후 채워져요" });
+    }
+    const wine = { ...(w0 || { name, nameKo: "", kind: guessKindFromName(name), axes: null,
+      predictedScore: null, myScore: null, author: p.author || "me" }), entryId };
+    setPosts((prev) => (prev || []).map((x) => (x.id === p.id ? { ...x, wine } : x)));
+    setPostAdding(null); setPostAddName("");
+    api({ action: "updatePost", post: { id: p.id, wine, owner: curProfile } }).catch(() => {});
   }
 
   const [pendingPostDelete, setPendingPostDelete] = useState(null);
@@ -2213,6 +2281,15 @@ function App() {
       if (d.profile) e.reason = d.profile;
       if (e.predictedScore == null && d.predictedScore != null) e.predictedScore = d.predictedScore;
     }
+    if (mode === "post") {
+      if (entry._fromPost) {
+        if (d.name) e.name = String(d.name);
+        if (d.kind === "wine" || d.kind === "whisky") e.kind = d.kind;
+      }
+      if (d.profile && !e.reason) e.reason = d.profile;
+      if (e.predictedScore == null && d.predictedScore != null) e.predictedScore = d.predictedScore;
+    }
+    delete e._fromPost;
     return e;
   }
   // opts: {needDetail:{name,kind}, mode, imageData, doneMsg}
@@ -3928,11 +4005,13 @@ function App() {
                         {postWineLoading ? "…" : postImageData ? "사진 분석" : "분석"}
                       </button>
                     </div>
-                    {postImageData && (
-                      <div style={{ fontSize: 11, color: C.sub, marginTop: 5 }}>
-                        올린 사진 속 술을 자동으로 인식해 평가·그래프를 붙여요.
-                      </div>
-                    )}
+                    <div style={{ fontSize: 11, color: C.sub, marginTop: 5, lineHeight: 1.5 }}>
+                      {postWineName.trim()
+                        ? "이름만 적어도 셀러에 기록돼요(그래프·정보는 뒤에서 채움). '분석'을 누르면 지금 보고 점수도 줄 수 있어요."
+                        : postImageData
+                          ? "'사진 분석'을 누르면 사진 속 술을 인식해 셀러에도 기록해요. 이름도 없이 올리면 셀러엔 안 들어가요."
+                          : "술 이름을 적으면 셀러에도 기록돼요."}
+                    </div>
                   </div>
                 ) : (
                   <div style={{ background: C.panel2, border: `1px solid ${C.goldDim}`,
@@ -3954,7 +4033,7 @@ function App() {
                       </div>
                     )}
                     <div style={{ fontSize: 11, color: C.sub, marginTop: 8, marginBottom: 6 }}>
-                      이 술에 점수를 주면 셀러에도 기록돼요 (예측 {postWine.predictedScore ?? "—"})
+                      올리면 셀러에도 기록돼요 · 점수는 선택 (예측 {postWine.predictedScore ?? "—"})
                     </div>
                     {postWineScore != null ? (
                       <div style={{ fontSize: 13, color: C.gold }}>내 점수: {postWineScore}
@@ -4133,6 +4212,38 @@ function App() {
                           {p.wine.axes && <AxisBars axes={p.wine.axes} />}
                         </div>
                       )}
+                      {isMine && (() => {
+                        const ce = postCellarEntry(p);
+                        if (ce) return (
+                          <button onClick={() => gotoCellarItem(ce)}
+                            style={{ marginTop: 10, background: "none", border: "none", padding: 0,
+                              color: "#A8D8A8", fontSize: 12, cursor: "pointer" }}>
+                            ✓ 셀러에 있음{ce._pending ? " (저장 중)" : ""} ›
+                          </button>
+                        );
+                        if (postAdding === p.id) return (
+                          <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                            <input value={postAddName} autoFocus onChange={(ev) => setPostAddName(ev.target.value)}
+                              onKeyDown={(ev) => ev.key === "Enter" && addPostToCellar(p, postAddName)}
+                              placeholder="마신 술 이름"
+                              style={{ flex: 1, minWidth: 0, background: C.panel2, border: `1px solid ${C.line}`,
+                                borderRadius: 8, color: C.text, padding: "8px 10px", fontSize: 13 }} />
+                            <button onClick={() => addPostToCellar(p, postAddName)}
+                              style={{ padding: "0 12px", background: C.gold, color: "#1B160C", border: "none",
+                                borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>담기</button>
+                            <button onClick={() => { setPostAdding(null); setPostAddName(""); }}
+                              style={{ padding: "0 10px", background: "transparent", color: C.sub,
+                                border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 12, cursor: "pointer" }}>취소</button>
+                          </div>
+                        );
+                        return (
+                          <button onClick={() => (p.wine && p.wine.name) ? addPostToCellar(p) : (setPostAdding(p.id), setPostAddName(""))}
+                            style={{ marginTop: 10, padding: "6px 12px", background: "transparent", color: C.gold,
+                              border: `1px solid ${C.goldDim}`, borderRadius: 14, fontSize: 12, cursor: "pointer" }}>
+                            ＋ 셀러에 담기
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
