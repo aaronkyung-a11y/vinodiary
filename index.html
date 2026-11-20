@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.73";
+const APP_VERSION = "v1.74";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -262,16 +262,83 @@ function t100MatchName(name, idx) {
   });
   return Object.values(best).sort((a, b) => (a.list.date < b.list.date ? 1 : -1));
 }
+// ── 나의 TOP: 위스키(증류주) 가려내기 ──
+// 종류 칸(kind)이 "whisky"가 아닌데도 위스키인 기록이 있다: 칸이 빈 기록, 영문 이름을 못 알아봐 "wine"으로 저장된 기록.
+// 그래서 종류 칸만 믿지 않고 이름·정보까지 본다. 순서:
+// ① 저장된 종류가 위스키 ② 이름이 확실한 위스키(증류소·브랜드·"위스키" 글자)
+// ③ 품종 정보가 없는데 캐스크 정보가 있거나 이름이 글렌…으로 시작 ④ 위스키 맛 축으로 분석된 기록
+// ⑤ 여기까지 안 걸린, 와인으로 저장·분석된 기록은 와인 ⑥ 종류 칸이 비고 단서도 없으면 넓은 단어·숙성 연수로 짐작.
+// 한글 낱말은 다른 이름 속에 묻혀 있을 수 있어 조심해서 넣는다(예: '그라파'는 '아그라파르'에, '산토리'는 '산토리니'에 들어 있음).
+const MYTOP_SPIRIT_RE = new RegExp([
+  "whisk(?:e)?y|위스키|single\\s*malt|싱글\\s*몰트|\\bscotch\\b|스카치(?![가-힣])|cask\\s*strength|캐스크\\s*스트렝스",
+  "\\bbourbon\\b(?!\\s*barrel)|버번(?!\\s*배럴)|버본(?!\\s*배럴)",
+  "hibiki|히비키|nikka|닛카|johnnie\\s*walker|조니\\s*워커|ballantine|발렌타인|royal\\s*salute|로얄\\s*살루트|\\bchivas\\b|시바스\\s*리갈",
+  "monkey\\s*shoulder|몽키\\s*숄더|dewar'?s|compass\\s*box|컴파스\\s*박스|michel\\s*couvreur|미셸\\s*쿠브레",
+  "longrow|롱로우|hazelburn|헤이즐번|kilkerran|킬커란|edradour|에드라두어|port\\s*ellen|포트\\s*엘런|rosebank|로즈뱅크|\\bbrora\\b",
+  "linkwood|링크우드|aultmore|올트모어|ben\\s*nevis|벤\\s*네비스|tomintoul|토민타울|speyburn|스페이번|benrinnes|royal\\s*brackla|royal\\s*lochnagar",
+  "\\bsignatory\\b|시그나토리|gordon\\s*(?:&|and)?\\s*macphail|고든\\s*앤\\s*맥페일|cadenhead|카덴헤드",
+  "teeling|bushmills|부시밀|\\bmidleton\\b|\\bjameson\\b|redbreast|레드브레스트",
+  "jack\\s*daniel|잭\\s*다니엘|blanton'?s|블랑톤|michter|믹터스|\\bpappy\\b|van\\s*winkle|knob\\s*creek|놉\\s*크릭|bulleit",
+  "whistlepig|휘슬피그|\\bwillett\\b|angel'?s\\s*envy|엔젤스\\s*엔비|russell'?s\\s*reserve|러셀\\s*리저브",
+  "\\bamrut\\b|paul\\s*john\\b|akkeshi",
+  "baijiu|白酒|바이주|고량주|cognac|코냑|꼬냑|armagnac|아르마냑|calvados|칼바도스|tequila|데킬라|mezcal|vodka|보드카|\\brum\\b|\\bgin\\b|\\bbrandy\\b|브랜디|\\bgrappa\\b|\\bsoju\\b",
+].join("|"), "i");
+const MYTOP_SPIRIT_LOOSE_RE = /\bmalt\b|몰트|suntory|산토리(?!니)|distiller|증류|\barran\b|\boban\b|\bstagg\b/i;
+const MYTOP_AGE_RE = /\b\d{1,2}\s*(?:years?\s*old|yo|y\.o\.?)(?![a-z])/i; // 한글 'N년'은 빈티지(18년 = 2018)로도 쓰여 넣지 않는다
+const MYTOP_FORTIFIED_RE = /tawny|토니|colheita|madeira|마데이라|marsala|vin\s*santo|sherry(?!\s*(?:cask|butt|oak))|셰리(?!\s*캐스크)|\bport\b(?!\s*(?:cask|finish|wood|pipe))|포트(?!\s*(?:캐스크|피니시))/i;
+const MYTOP_WHISKY_AX = ["peat", "sherry", "spice", "oiliness"];
+const MYTOP_WINE_AX = ["mineral", "acidity", "salinity", "texture", "fruit"];
+const mytopSquash = (s) => String(s || "").toLowerCase().replace(/[\s'’`\-·.]+/g, "");
+// 지도에 쓰는 증류소 이름 목록을 그대로 쓴다. 와인 이름과 겹칠 수 있는 짧은 이름·사람 이름은 뺀다.
+let _mytopDistilleries = null;
+function mytopDistilleries() {
+  if (_mytopDistilleries) return _mytopDistilleries;
+  const skip = { russell: 1, booker: 1, "베이커스": 1 };
+  const out = [];
+  for (const key in WINE_REGIONS) {
+    const R = WINE_REGIONS[key];
+    if (!R || R.kind !== "whisky") continue;
+    (R.villages || []).forEach((v) => (v.al || []).forEach((a) => {
+      const s = mytopSquash(a);
+      if (!s || skip[s] || out.indexOf(s) >= 0) return;
+      if (/^[\x00-\x7f]+$/.test(s) ? s.length <= 5 : s.length <= 2) return;
+      out.push(s);
+    }));
+  }
+  _mytopDistilleries = out;
+  return out;
+}
+function isWhiskyEntry(e) {
+  if (!e) return false;
+  const kind = String(e.kind || "").trim().toLowerCase();
+  if (kind === "whisky" || kind === "whiskey" || kind === "위스키") return true;
+  if (String(e.subtype || "").trim().toLowerCase() === "whisky") return true;
+  const nm = (String(e.name || "") + " " + String(e.nameKo || "")).toLowerCase();
+  if (MYTOP_SPIRIT_RE.test(nm)) return true;
+  const sq = mytopSquash(nm);
+  if (mytopDistilleries().some((a) => sq.indexOf(a) >= 0)) return true;
+  const inf = (e.info && typeof e.info === "object") ? e.info : {};
+  const has = (v) => !!String(v == null ? "" : v).trim();
+  const grapes = has(inf.grapes);
+  if (!grapes && (has(inf.cask) || has(inf.caskRegion) || /\bglen|글렌/.test(nm))) return true;
+  const ax = (e.axes && typeof e.axes === "object") ? e.axes : {};
+  const wAx = MYTOP_WHISKY_AX.some((k) => ax[k] != null);
+  const vAx = MYTOP_WINE_AX.some((k) => ax[k] != null);
+  if (wAx && !vAx) return true;
+  if (grapes || vAx || kind === "wine" || kind === "와인") return false;
+  return MYTOP_SPIRIT_LOOSE_RE.test(nm) || (MYTOP_AGE_RE.test(nm) && !MYTOP_FORTIFIED_RE.test(nm));
+}
+
 // ── 나의 TOP: 내가 준 점수로 줄 세운 내 와인 ──
 // 종류(샴페인·화이트·레드)로 나누지 않는다: 옛 기록에는 종류가 비어 있는 것이 많아
 // 이름으로 짐작하면 블랑 드 블랑 샴페인이 화이트로 가는 식으로 틀린다(v1.71에서 확인).
 // 저장된 종류가 있을 때만 카드에 꼬리표로 보여준다.
 const MYTOP_SUB = { champagne: "샴페인", white: "화이트", red: "레드", rose: "로제", sweet: "스위트" };
 // 점수 높은 순, 같은 점수는 같은 순위(1·1·3…)로 두고 최근 기록을 먼저.
-// 와인 판정은 셀러 화면과 똑같이 "위스키가 아니면 와인". 옛 기록은 kind 칸이 비었거나
-// "wine"이 아닌 다른 글자로 들어 있어, kind === "wine"으로 거르면 셀러에는 보이는 술이 빠진다(v1.72에서 확인).
+// "위스키가 아니면 와인"으로 본다. kind === "wine"으로 거르면 종류 칸이 빈 와인이 빠지고(v1.72),
+// kind !== "whisky"로만 거르면 종류 칸이 틀린 위스키가 들어온다(v1.73). 그래서 isWhiskyEntry로 판정.
 function myTopList(entries) {
-  const arr = (entries || []).filter((e) => e && e.kind !== "whisky" && e.status !== "wishlist" && e.myScore != null && e.myScore !== "")
+  const arr = (entries || []).filter((e) => e && !isWhiskyEntry(e) && e.status !== "wishlist" && e.myScore != null && e.myScore !== "")
     .sort((a, b) => Number(b.myScore) - Number(a.myScore) || Number(b.id) - Number(a.id));
   let rank = 0, prev = null;
   return arr.map((e, i) => {
@@ -903,7 +970,8 @@ function writeLS(key, v) {
   try { localStorage.setItem(key, JSON.stringify(v)); return true; } catch (e) { return false; }
 }
 const VD_WHISKY_RE = /whisk|scotch|bourbon|single\s*malt|위스키|버번|싱글\s*몰트|글렌|맥캘란|스프링뱅크|야마자키|히비키|하쿠슈|라프로익|아드벡|탈리스커|발베니|글렌알라키/i;
-function guessKindFromName(n) { return VD_WHISKY_RE.test(String(n || "")) ? "whisky" : "wine"; }
+// 영문 이름(GlenAllachie 등)은 위 목록에 없어 "wine"으로 저장되곤 했다. 나의 TOP과 같은 판정을 함께 쓴다(v1.74).
+function guessKindFromName(n) { const t = String(n || ""); return (VD_WHISKY_RE.test(t) || isWhiskyEntry({ name: t })) ? "whisky" : "wine"; }
 function shortName(n) { const t = String(n || "").trim(); return t.length > 22 ? t.slice(0, 21) + "…" : t; }
 // 오래 걸리는 작업을 처음 시작할 때 한 번만 알림 권한을 묻는다(거절해도 다시 묻지 않음)
 function askNotifyOnce() {
