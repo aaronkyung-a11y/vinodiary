@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.71";
+const APP_VERSION = "v1.72";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -262,22 +262,14 @@ function t100MatchName(name, idx) {
   });
   return Object.values(best).sort((a, b) => (a.list.date < b.list.date ? 1 : -1));
 }
-// ── 나의 TOP: 내가 준 점수로 줄 세운 내 와인(샴페인·화이트·레드) ──
-// 종류는 저장된 subtype을 그대로 쓰고, 없을 때만 이름으로 짐작한다.
-// 로제·스위트와 짐작이 안 되는 술은 세 묶음 어디에도 넣지 않는다(null).
-const MYTOP_CATS = [["champagne", "샴페인"], ["white", "화이트"], ["red", "레드"]];
-function myTopCat(e) {
-  if (!e || e.kind !== "wine") return null;
-  if (e.subtype) return (e.subtype === "champagne" || e.subtype === "white" || e.subtype === "red") ? e.subtype : null;
-  const t = ((e.name || "") + " " + (e.nameKo || "") + " " + (e.resembles || "")).toLowerCase();
-  if (/샴페인|샹파뉴|크레망|스파클|프란치아코르타|champagne|cr[ée]mant|sparkl|franciacorta|\bcava\b|\bsekt\b/.test(t)) return "champagne";
-  if (/레드|루즈|피노 ?누아|[카까]베르네|메를로|쉬라즈|네비올로|산지오베제|바롤로|바르바레스코|브루넬로|[끼키]안티|\bred\b|rouge|pinot noir|cabernet|merlot|syrah|shiraz|nebbiolo|sangiovese|barolo|barbaresco|brunello|chianti|malbec|tempranillo|zinfandel|grenache/.test(t)) return "red";
-  if (/화이트|블랑|샤르도네|샤도네이|리슬링|[소쇼]비뇽 ?블랑|샤블리|카리칸테|\bwhite\b|blanc|chardonnay|riesling|chablis|chenin|pinot gri|albari|viognier|carricante/.test(t)) return "white";
-  return null;
-}
+// ── 나의 TOP: 내가 준 점수로 줄 세운 내 와인 ──
+// 종류(샴페인·화이트·레드)로 나누지 않는다: 옛 기록에는 종류가 비어 있는 것이 많아
+// 이름으로 짐작하면 블랑 드 블랑 샴페인이 화이트로 가는 식으로 틀린다(v1.71에서 확인).
+// 저장된 종류가 있을 때만 카드에 꼬리표로 보여준다.
+const MYTOP_SUB = { champagne: "샴페인", white: "화이트", red: "레드", rose: "로제", sweet: "스위트" };
 // 점수 높은 순, 같은 점수는 같은 순위(1·1·3…)로 두고 최근 기록을 먼저.
-function myTopList(entries, cat) {
-  const arr = (entries || []).filter((e) => e && e.status !== "wishlist" && e.myScore != null && e.myScore !== "" && myTopCat(e) === cat)
+function myTopList(entries) {
+  const arr = (entries || []).filter((e) => e && e.kind === "wine" && e.status !== "wishlist" && e.myScore != null && e.myScore !== "")
     .sort((a, b) => Number(b.myScore) - Number(a.myScore) || Number(b.id) - Number(a.id));
   let rank = 0, prev = null;
   return arr.map((e, i) => {
@@ -3559,7 +3551,6 @@ function App() {
   const [t100Q, setT100Q] = useState("");
   const [t100Shown, setT100Shown] = useState(20);
   const [t100Focus, setT100Focus] = useState(null);  // {list, rank} 배지에서 들어왔을 때 강조
-  const [t100MyCat, setT100MyCat] = useState("champagne"); // '나의 TOP'에서 고른 종류
   useEffect(() => {
     // 레포에 함께 배포되는 목록 파일. 실패하면 기기에 저장해 둔 지난 목록 사용
     fetch("top100.json?v=" + APP_VERSION, { cache: "no-store" })
@@ -5958,41 +5949,29 @@ function App() {
             </div>
           );
           if (mineOn) {
-            const perCat = {};
-            MYTOP_CATS.forEach(([k]) => { perCat[k] = myTopList(entries, k); });
-            const cat = perCat[t100MyCat] ? t100MyCat : "champagne";
-            const catLabel = (MYTOP_CATS.find(([k]) => k === cat) || ["", ""])[1];
-            const all = perCat[cat];
+            const all = myTopList(entries);
             const q = t100Q.trim();
             const items = all.filter((x) => !q || matchSearch(x.e, q));
             const shown = items.slice(0, t100Shown);
-            const left = entries.filter((e) => e.status !== "wishlist" && e.kind === "wine" && e.myScore != null && e.myScore !== "" && !myTopCat(e)).length;
             return (
               <section>
                 {head}
                 {chipRow}
                 <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
-                  <div style={{ fontSize: 14, color: C.text, fontFamily: "Georgia, serif" }}>나의 TOP</div>
+                  <div style={{ fontSize: 14, color: C.text, fontFamily: "Georgia, serif" }}>나의 TOP{all.length > 0 ? ` · ${all.length}종` : ""}</div>
                   <div style={{ fontSize: 11, color: C.sub, marginTop: 3, lineHeight: 1.5 }}>
-                    내가 준 점수가 높은 순서예요. 점수가 같으면 같은 순위로 두고 최근 기록을 먼저 보여줘요.
-                    {left > 0 && <> 로제·스위트이거나 종류를 알 수 없는 {left}종은 여기에 없어요. 셀러에서 종류를 고치면 들어와요.</>}
+                    내가 점수를 준 와인을 점수 높은 순으로 보여줘요. 점수가 같으면 같은 순위로 두고 최근 기록을 먼저 보여줘요.
                   </div>
-                </div>
-                <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-                  {MYTOP_CATS.map(([k, label]) => (
-                    <button key={k} onClick={() => { setT100MyCat(k); setT100Shown(20); setT100Q(""); }}
-                      style={{ ...chipStyle(k === cat), flex: 1 }}>{label} {perCat[k].length}</button>
-                  ))}
                 </div>
                 {all.length > 12 && (
                   <input value={t100Q} onChange={(e) => { setT100Q(e.target.value); setT100Shown(20); }}
-                    placeholder="찾기 (예: 블랑 드 블랑, 부르고뉴)"
+                    placeholder="찾기 (예: 샴페인, 부르고뉴, 바롤로)"
                     style={{ width: "100%", boxSizing: "border-box", background: C.panel, border: `1px solid ${C.line}`,
                       borderRadius: 10, color: C.text, padding: "10px 12px", fontSize: 14, marginBottom: 10 }} />
                 )}
                 {all.length === 0 && (
                   <div style={{ textAlign: "center", color: C.sub, padding: "30px 10px", fontSize: 13, lineHeight: 1.6 }}>
-                    아직 점수를 준 {catLabel} 와인이 없어요.<br />셀러에서 점수를 주면 여기에 순위가 생겨요.</div>
+                    아직 점수를 준 와인이 없어요.<br />셀러에서 점수를 주면 여기에 순위가 생겨요.</div>
                 )}
                 {shown.map(({ e, rank }) => (
                   <div key={e.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14,
@@ -6009,7 +5988,7 @@ function App() {
                           wordBreak: "keep-all", overflowWrap: "anywhere" }}>{e.nameKo}</div>
                       )}
                       <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>
-                        {[e.date, e.subtype ? "" : "종류는 이름으로 짐작"].filter(Boolean).join(" · ")}
+                        {[MYTOP_SUB[e.subtype], e.date].filter(Boolean).join(" · ")}
                       </div>
                       <CriticBadges c={cellarCritics(e)} quiet />
                       <T100Badges matches={t100For(e.name)} onOpen={openT100} />
