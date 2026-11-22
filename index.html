@@ -51,7 +51,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 const API_KEY_LS = "vinodiary:apiUrl";
 const NAME_LS = "vinodiary:userName";
-const APP_VERSION = "v1.74";
+const APP_VERSION = "v1.75";
 
 // 한국시간(KST, UTC+9) 기준 "YYYY-MM-DD HH:mm"
 // 기기(올리는 지역)의 로컬 시간 기준. "YYYY-MM-DD HH:mm"
@@ -345,6 +345,20 @@ function myTopList(entries) {
     if (Number(e.myScore) !== prev) { rank = i + 1; prev = Number(e.myScore); }
     return { e, rank };
   });
+}
+// ── 나의 위시 TOP: 위시리스트에 담은 와인을 예측 점수로 줄 세운 것 ──
+// 셀러의 "위시리스트 + 예측 점수 높은순"과 같은 기준. 위스키는 나의 TOP과 같은 판정으로 뺀다.
+// 예측 점수가 아직 없는 위시는 순위를 매길 수 없어 빼고, 몇 종인지만 알려준다(unscored).
+function myWishTopList(entries) {
+  const wish = (entries || []).filter((e) => e && e.status === "wishlist" && !isWhiskyEntry(e));
+  const arr = wish.filter((e) => e.predictedScore != null && e.predictedScore !== "" && !isNaN(Number(e.predictedScore)))
+    .sort((a, b) => Number(b.predictedScore) - Number(a.predictedScore) || Number(b.id) - Number(a.id));
+  let rank = 0, prev = null;
+  const items = arr.map((e, i) => {
+    if (Number(e.predictedScore) !== prev) { rank = i + 1; prev = Number(e.predictedScore); }
+    return { e, rank };
+  });
+  return { items, unscored: wish.length - arr.length };
 }
 
 function T100Photos({ items, fetchCritics }) {
@@ -5998,7 +6012,8 @@ function App() {
         {tab === "top100" && (() => {
           const lists = (top100 && top100.lists) || [];
           const mineOn = t100List === "mine";
-          const curList = mineOn ? null : (lists.find((l) => l.id === t100List) || lists[0] || null);
+          const wishOn = t100List === "wish";
+          const curList = (mineOn || wishOn) ? null : (lists.find((l) => l.id === t100List) || lists[0] || null);
           const chipStyle = (sel) => ({ padding: "7px 12px", borderRadius: 16, fontSize: 12, cursor: "pointer",
             background: sel ? C.gold : C.panel, color: sel ? "#1B160C" : C.sub,
             border: `1px solid ${sel ? C.gold : C.line}`, fontWeight: sel ? 700 : 400 });
@@ -6009,6 +6024,8 @@ function App() {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
               <button onClick={() => { setT100List("mine"); setT100Shown(20); setT100Q(""); setT100Focus(null); }}
                 style={mineOn ? chipStyle(true) : { ...chipStyle(false), color: C.gold, border: `1px solid ${C.goldDim}` }}>나의 TOP</button>
+              <button onClick={() => { setT100List("wish"); setT100Shown(20); setT100Q(""); setT100Focus(null); }}
+                style={wishOn ? chipStyle(true) : { ...chipStyle(false), color: C.gold, border: `1px solid ${C.goldDim}` }}>나의 위시 TOP</button>
               {lists.map((l) => {
                 const sel = !!curList && l.id === curList.id;
                 return (
@@ -6018,8 +6035,10 @@ function App() {
               })}
             </div>
           );
-          if (mineOn) {
-            const all = myTopList(entries);
+          if (mineOn || wishOn) {
+            const wishTop = wishOn ? myWishTopList(entries) : null;
+            const all = wishOn ? wishTop.items : myTopList(entries);
+            const topTitle = wishOn ? "나의 위시 TOP" : "나의 TOP";
             const q = t100Q.trim();
             const items = all.filter((x) => !q || matchSearch(x.e, q));
             const shown = items.slice(0, t100Shown);
@@ -6028,9 +6047,12 @@ function App() {
                 {head}
                 {chipRow}
                 <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
-                  <div style={{ fontSize: 14, color: C.text, fontFamily: "Georgia, serif" }}>나의 TOP{all.length > 0 ? ` · ${all.length}종` : ""}</div>
+                  <div style={{ fontSize: 14, color: C.text, fontFamily: "Georgia, serif" }}>{topTitle}{all.length > 0 ? ` · ${all.length}종` : ""}</div>
                   <div style={{ fontSize: 11, color: C.sub, marginTop: 3, lineHeight: 1.5 }}>
-                    내가 점수를 준 와인을 점수 높은 순으로 보여줘요. 점수가 같으면 같은 순위로 두고 최근 기록을 먼저 보여줘요.
+                    {wishOn
+                      ? "위시리스트에 담은 와인을 예측 점수 높은 순으로 보여줘요. 점수가 같으면 같은 순위로 두고 최근에 담은 것을 먼저 보여줘요."
+                      : "내가 점수를 준 와인을 점수 높은 순으로 보여줘요. 점수가 같으면 같은 순위로 두고 최근 기록을 먼저 보여줘요."}
+                    {wishOn && wishTop.unscored > 0 ? ` 예측 점수가 아직 없는 ${wishTop.unscored}종은 빠져 있어요.` : ""}
                   </div>
                 </div>
                 {all.length > 12 && (
@@ -6041,7 +6063,9 @@ function App() {
                 )}
                 {all.length === 0 && (
                   <div style={{ textAlign: "center", color: C.sub, padding: "30px 10px", fontSize: 13, lineHeight: 1.6 }}>
-                    아직 점수를 준 와인이 없어요.<br />셀러에서 점수를 주면 여기에 순위가 생겨요.</div>
+                    {wishOn
+                      ? <>위시리스트에 예측 점수가 있는 와인이 아직 없어요.<br />분석한 술을 위시리스트에 담으면 여기에 순위가 생겨요.</>
+                      : <>아직 점수를 준 와인이 없어요.<br />셀러에서 점수를 주면 여기에 순위가 생겨요.</>}</div>
                 )}
                 {shown.map(({ e, rank }) => (
                   <div key={e.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14,
@@ -6049,7 +6073,7 @@ function App() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                         <span style={{ fontFamily: "Georgia, serif", fontSize: 22, color: C.gold, fontWeight: 700 }}>{rank}</span>
-                        <span style={{ fontSize: 12, color: C.gold, fontWeight: 700 }}>내 점수 {e.myScore}점</span>
+                        <span style={{ fontSize: 12, color: C.gold, fontWeight: 700 }}>{wishOn ? `예측 ${e.predictedScore}점` : `내 점수 ${e.myScore}점`}</span>
                       </div>
                       <div style={{ fontFamily: "Georgia, serif", fontSize: 15, color: C.text, lineHeight: 1.3, marginTop: 2,
                         wordBreak: "keep-all", overflowWrap: "anywhere" }}>{e.name}</div>
@@ -6058,7 +6082,7 @@ function App() {
                           wordBreak: "keep-all", overflowWrap: "anywhere" }}>{e.nameKo}</div>
                       )}
                       <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>
-                        {[MYTOP_SUB[e.subtype], e.date].filter(Boolean).join(" · ")}
+                        {[MYTOP_SUB[e.subtype], e.date, (wishOn && (Number(e.stock) || 0) > 0) ? `보유 ${Number(e.stock)}병` : null].filter(Boolean).join(" · ")}
                       </div>
                       <CriticBadges c={cellarCritics(e)} quiet />
                       <T100Badges matches={t100For(e.name)} onOpen={openT100} />
